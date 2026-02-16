@@ -10,416 +10,479 @@ import json
 # --- 1. CONFIGURATION & STATE ---
 st.set_page_config(page_title="Régie Festival Pro", layout="wide")
 
-# Initialisation des variables (mémoire de l'appli)
+# Initialisation des variables
 if 'nom_festival' not in st.session_state: st.session_state.nom_festival = "Mon Festival"
 if 'logo_festival' not in st.session_state: st.session_state.logo_festival = None
+
+# Structure du Planning (Colonnes fixes)
 if 'planning' not in st.session_state:
     st.session_state.planning = pd.DataFrame(columns=["Scène", "Jour", "Artiste", "Balance", "Show"])
+
+# Structure des Fiches Techniques
 if 'fiches_tech' not in st.session_state:
     st.session_state.fiches_tech = pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Catégorie", "Marque", "Modèle", "Quantité", "Artiste_Apporte"])
+
+# Stockage des PDF (Dictionnaire: Artiste -> {NomFichier: Bytes})
 if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {} 
-if 'pdf_uploader_key' not in st.session_state:
-    st.session_state.pdf_uploader_key = 0 
+
+# Bibliothèque Matériel par défaut
 if 'bibliotheque' not in st.session_state:
-    # Bibliothèque par défaut (sera écrasée si tu charges ton Excel)
     st.session_state.bibliotheque = {
-        "MICROS FILAIRE": {"SHURE": ["SM58", "SM57", "BETA52"], "SENNHEISER": ["MD421", "E906"]},
-        "REGIE": {"YAMAHA": ["QL1", "CL5"], "MIDAS": ["M32"]},
-        "MICROS HF": {"SHURE": ["AD4D"], "SENNHEISER": ["6000 Series"]},
-        "EAR MONITOR": {"SHURE": ["PSM1000"]}
+        "MICROS FILAIRE": {"SHURE": ["SM58", "SM57", "BETA52"], "SENNHEISER": ["MD421", "E906", "E604"]},
+        "REGIE": {"YAMAHA": ["QL1", "CL5"], "MIDAS": ["M32", "PRO1"]},
+        "MICROS HF": {"SHURE": ["AD4D", "ULXD"], "SENNHEISER": ["6000 Series", "EW-DX"]},
+        "DI / LINE": {"BSS": ["AR133"], "RADIAL": ["J48", "JDI"]},
+        "STANDS": {"K&M": ["Grand Perche", "Petit Perche", "Droit"]}
     }
 
-# --- 2. FONCTIONS TECHNIQUES (Excel, Calcul, PDF) ---
+# --- 2. FONCTIONS MÉTIER ---
 
 def charger_bibliotheque_excel(file):
-    """Lit ton fichier Excel et met à jour les menus déroulants"""
+    """Charge le fichier Excel et met à jour les menus déroulants"""
     try:
         dict_final = {}
         all_sheets = pd.read_excel(file, sheet_name=None)
         for sheet_name, df in all_sheets.items():
-            # On retire "DONNEES" pour avoir le nom propre de la catégorie
             cat_name = sheet_name.replace("DONNEES ", "").upper()
             dict_final[cat_name] = {}
             for col in df.columns:
-                # On prend le nom avant le tiret (ex: SHURE_FILAIRE -> SHURE)
                 brand_name = col.split('_')[0].upper()
                 models = df[col].dropna().astype(str).tolist()
                 if models:
                     dict_final[cat_name][brand_name] = models
         return dict_final
     except Exception as e:
-        st.error(f"Erreur lecture Excel : {e}")
+        st.error(f"Erreur format Excel : {e}")
         return st.session_state.bibliotheque
 
-def calculer_besoin_journee(df_tech, planning, scene, jour):
-    """Le fameux calcul N+N+1"""
-    # 1. On récupère l'ordre de passage
-    plan = planning[(planning["Scène"] == scene) & (planning["Jour"] == jour)].copy().sort_values(by="Show")
-    artistes = plan["Artiste"].tolist()
+def calculer_besoin_max_scene(df_tech, planning, scene, jour):
+    """
+    CALCUL N + N+1 (Ta demande spécifique)
+    1. On prend les artistes dans l'ordre du SHOW.
+    2. On calcule le cumul (Artiste N + Artiste N+1).
+    3. On prend le MAX de ces cumuls pour définir le besoin scène.
+    """
+    # 1. Récupérer l'ordre de passage
+    plan = planning[(planning["Scène"] == scene) & (planning["Jour"] == jour)].copy()
+    if plan.empty: return pd.DataFrame()
     
-    if not artistes: return pd.DataFrame() # Pas d'artistes ce jour là
+    # Tri par heure de Show (essentiel pour le N+1)
+    plan = plan.sort_values(by="Show")
+    artistes_ordonnes = plan["Artiste"].tolist()
     
-    # 2. On filtre le matériel demandé (en excluant ce que l'artiste amène lui-même)
-    matos_regie = df_tech[(df_tech["Scène"] == scene) & (df_tech["Jour"] == jour) & (df_tech["Artiste_Apporte"] == False)]
+    # Filtrer le matos nécessaire (exclure ce qui est apporté par l'artiste)
+    matos_jour = df_tech[
+        (df_tech["Scène"] == scene) & 
+        (df_tech["Jour"] == jour) & 
+        (df_tech["Artiste_Apporte"] == False)
+    ]
     
-    if matos_regie.empty: return pd.DataFrame() # Rien demandé
-    
-    # Cas simple : 1 seul artiste
-    if len(artistes) == 1:
-        return matos_regie.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
+    if matos_jour.empty: return pd.DataFrame()
 
-    # Cas N+N+1 : On compare les artistes par paires (Binômes)
-    besoins_binomes = []
-    for i in range(len(artistes) - 1):
-        groupe_A = artistes[i]
-        groupe_B = artistes[i+1]
-        
-        # On prend le matos de A et B
-        df_binome = matos_regie[matos_regie["Groupe"].isin([groupe_A, groupe_B])]
-        # On somme les quantités par modèle pour ce binôme
-        sum_binome = df_binome.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum()
-        besoins_binomes.append(sum_binome)
+    # Si un seul artiste, c'est simple
+    if len(artistes_ordonnes) == 1:
+        return matos_jour.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
+
+    # Calcul des binômes (Changeovers)
+    requirements_per_changeover = []
     
-    # On prend le maximum de tous les binômes
-    if besoins_binomes:
-        res = pd.concat(besoins_binomes, axis=1).max(axis=1).reset_index()
-        res.columns = ["Catégorie", "Marque", "Modèle", "Quantité"]
-        return res
+    # Pour chaque transition (Groupe i et Groupe i+1)
+    for i in range(len(artistes_ordonnes) - 1):
+        groupe_actuel = artistes_ordonnes[i]
+        groupe_suivant = artistes_ordonnes[i+1]
+        
+        # Matos cumulé des deux
+        df_binome = matos_jour[matos_jour["Groupe"].isin([groupe_actuel, groupe_suivant])]
+        
+        # Somme par modèle pour ce moment T
+        sum_binome = df_binome.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
+        requirements_per_changeover.append(sum_binome)
+        
+    # On ajoute aussi le cas du dernier groupe seul (optionnel mais prudent si c'est le plus gros)
+    last_grp = matos_jour[matos_jour["Groupe"] == artistes_ordonnes[-1]]
+    requirements_per_changeover.append(last_grp.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index())
+
+    # CALCUL FINAL : On prend le MAX de tous les scénarios (Changeovers)
+    if requirements_per_changeover:
+        # On concatène tous les besoins calculés
+        all_scenarios = pd.concat(requirements_per_changeover)
+        # On prend le MAX pour chaque item
+        final_req = all_scenarios.groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].max().reset_index()
+        return final_req
     
     return pd.DataFrame()
 
-class FestivalPDF(FPDF):
+def calculer_besoin_global_festival(df_tech, planning):
+    """
+    RECAP ITEM FESTIVAL : Max ( Total J1, Total J2, Total J3... ) par Scène
+    """
+    scenes = planning["Scène"].unique()
+    jours = planning["Jour"].unique()
+    
+    all_max_days = []
+    
+    for scene in scenes:
+        daily_reqs = []
+        for jour in jours:
+            # Calcule le besoin MAX de la journée (selon logique N+N+1)
+            req_jour = calculer_besoin_max_scene(df_tech, planning, scene, jour)
+            if not req_jour.empty:
+                req_jour["Scène_Ref"] = scene # Pour garder la trace
+                daily_reqs.append(req_jour)
+        
+        if daily_reqs:
+            # On prend le MAX parmi tous les jours pour cette scène
+            df_scene_days = pd.concat(daily_reqs)
+            max_scene = df_scene_days.groupby(["Scène_Ref", "Catégorie", "Marque", "Modèle"])["Quantité"].max().reset_index()
+            all_max_days.append(max_scene)
+            
+    if all_max_days:
+        return pd.concat(all_max_days)
+    return pd.DataFrame()
+
+# --- 3. MOTEUR PDF (Version Robuste) ---
+class ReportPDF(FPDF):
     def header(self):
         if st.session_state.logo_festival:
-            # Astuce pour mettre le logo PIL dans le PDF
-            img = st.session_state.logo_festival
             with io.BytesIO() as buf:
-                img.save(buf, format='PNG')
-                with open("temp_logo.png", "wb") as f: f.write(buf.getvalue())
-            self.image("temp_logo.png", 10, 8, 25)
-        self.set_font('Arial', 'B', 15)
+                st.session_state.logo_festival.save(buf, format='PNG')
+                with open("logo_tmp.png", "wb") as f: f.write(buf.getvalue())
+            self.image("logo_tmp.png", 10, 8, 30)
+        self.set_font('Arial', 'B', 16)
         self.cell(0, 10, st.session_state.nom_festival, 0, 1, 'R')
-        self.ln(12)
-
-def export_categorized_pdf(df, title):
-    pdf = FestivalPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, title, ln=True, align='C'); pdf.ln(10)
-    
-    if df.empty:
-        pdf.set_font("Arial", 'I', 12); pdf.cell(0, 10, "Aucun matériel requis.", ln=True)
-        return pdf.output(dest='S').encode('latin-1')
-
-    # Grouper par catégorie
-    for cat in df["Catégorie"].unique():
-        pdf.set_fill_color(200, 220, 255)
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, f"Catégorie : {cat}", ln=True, fill=True)
+        self.ln(15)
         
-        # En-têtes tableau
-        pdf.set_fill_color(240, 240, 240)
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(60, 8, "Marque", 1, 0, 'L', True)
-        pdf.cell(100, 8, "Modèle", 1, 0, 'L', True)
-        pdf.cell(30, 8, "Quantité", 1, 1, 'C', True)
-        
-        pdf.set_font("Arial", '', 10)
-        for _, row in df[df["Catégorie"] == cat].iterrows():
-            pdf.cell(60, 7, str(row["Marque"]), 1)
-            pdf.cell(100, 7, str(row["Modèle"]), 1)
-            pdf.cell(30, 7, str(row["Quantité"]), 1, 1, 'C')
-        pdf.ln(5)
-    
-    return pdf.output(dest='S').encode('latin-1')
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
-def export_planning_structured(df, title):
-    pdf = FestivalPDF()
+    def chapter_title(self, label):
+        self.set_fill_color(200, 220, 255)
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, label, 0, 1, 'L', True)
+        self.ln(4)
+
+    def add_table(self, df):
+        if df.empty:
+            self.set_font('Arial', 'I', 10)
+            self.cell(0, 10, "Aucune donnée.", 1, 1)
+            return
+            
+        # Headers
+        self.set_font('Arial', 'B', 10)
+        self.set_fill_color(240, 240, 240)
+        cols = [c for c in df.columns if c not in ["Scène_Ref", "Jour", "Groupe", "Artiste_Apporte"]]
+        
+        # Largeurs colonnes auto-adaptatives (simple)
+        w = [50, 80, 25] # Marque, Modèle, Qté (approx)
+        
+        self.cell(60, 7, "Catégorie", 1, 0, 'C', True)
+        self.cell(50, 7, "Marque", 1, 0, 'C', True)
+        self.cell(60, 7, "Modèle", 1, 0, 'C', True)
+        self.cell(20, 7, "Qté", 1, 1, 'C', True)
+        
+        # Data
+        self.set_font('Arial', '', 10)
+        for _, row in df.iterrows():
+            self.cell(60, 7, str(row["Catégorie"]), 1)
+            self.cell(50, 7, str(row["Marque"]), 1)
+            self.cell(60, 7, str(row["Modèle"]), 1)
+            self.cell(20, 7, str(row["Quantité"]), 1, 1, 'C')
+        self.ln(5)
+
+def generer_pdf_global():
+    pdf = ReportPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 15, title, ln=True, align='C')
+    pdf.set_font('Arial', 'B', 20)
+    pdf.cell(0, 10, "DOSSIER TECHNIQUE GLOBAL", 0, 1, 'C')
     pdf.ln(10)
     
-    jours = sorted(df["Jour"].unique())
-    for jour in jours:
-        pdf.set_fill_color(0, 0, 0)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(0, 10, f"DATE : {jour}", 1, 1, 'L', True)
-        pdf.set_text_color(0, 0, 0)
-        
-        scenes_jour = df[df["Jour"] == jour]["Scène"].unique()
-        for scene in scenes_jour:
-            pdf.ln(2)
-            pdf.set_fill_color(230, 230, 230)
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 8, f"SCÈNE : {scene}", "L", 1, 'L', True)
+    # 1. PLANNING
+    pdf.chapter_title("1. PLANNING GÉNÉRAL")
+    if not st.session_state.planning.empty:
+        # Tri complet
+        df_plan = st.session_state.planning.sort_values(by=["Jour", "Show"])
+        for jour in df_plan["Jour"].unique():
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 8, f"DATE : {jour}", 0, 1)
             
-            # Tableau des artistes
-            pdf.set_font("Arial", 'B', 10)
-            pdf.cell(30, 8, "Show", 1, 0, 'C')
-            pdf.cell(120, 8, "Artiste", 1, 0, 'L')
-            pdf.cell(30, 8, "Balance", 1, 1, 'C')
+            sub = df_plan[df_plan["Jour"] == jour]
+            pdf.set_font('Arial', 'B', 10)
+            pdf.cell(30, 7, "Scène", 1)
+            pdf.cell(30, 7, "Heure Show", 1)
+            pdf.cell(80, 7, "Artiste", 1)
+            pdf.cell(30, 7, "Balance", 1, 1)
             
-            pdf.set_font("Arial", '', 10)
-            subset = df[(df["Jour"] == jour) & (df["Scène"] == scene)].sort_values(by="Show")
-            for _, row in subset.iterrows():
-                pdf.cell(30, 8, str(row["Show"]), 1, 0, 'C')
-                pdf.cell(120, 8, str(row["Artiste"]), 1, 0, 'L')
-                pdf.cell(30, 8, str(row["Balance"]), 1, 1, 'C')
+            pdf.set_font('Arial', '', 10)
+            for _, row in sub.iterrows():
+                pdf.cell(30, 7, str(row["Scène"]), 1)
+                pdf.cell(30, 7, str(row["Show"]), 1)
+                pdf.cell(80, 7, str(row["Artiste"]), 1)
+                pdf.cell(30, 7, str(row["Balance"]), 1, 1)
             pdf.ln(5)
-        pdf.ln(5)
+    
+    pdf.add_page()
+    
+    # 2. BESOINS PAR JOUR ET SCÈNE (N+N+1)
+    pdf.chapter_title("2. BESOINS PAR SCÈNE (Calcul N + N+1)")
+    
+    scenes = st.session_state.planning["Scène"].unique()
+    jours = sorted(st.session_state.planning["Jour"].unique())
+    
+    for jour in jours:
+        for scene in scenes:
+            df_besoin = calculer_besoin_max_scene(st.session_state.fiches_tech, st.session_state.planning, scene, jour)
+            if not df_besoin.empty:
+                pdf.set_font('Arial', 'B', 11)
+                pdf.cell(0, 8, f">> {jour} - SCÈNE : {scene}", 0, 1)
+                pdf.add_table(df_besoin)
+    
+    pdf.add_page()
+    
+    # 3. RECAP FESTIVAL GLOBAL
+    pdf.chapter_title("3. TOTAL FESTIVAL (Max des Jours)")
+    df_global = calculer_besoin_global_festival(st.session_state.fiches_tech, st.session_state.planning)
+    
+    if not df_global.empty:
+        for scene in df_global["Scène_Ref"].unique():
+            pdf.set_font('Arial', 'B', 11)
+            pdf.cell(0, 8, f"TOTAL GLOBAL POUR : {scene}", 0, 1)
+            pdf.add_table(df_global[df_global["Scène_Ref"] == scene])
+    else:
+        pdf.cell(0, 10, "Pas assez de données pour le calcul global.", 0, 1)
+
     return pdf.output(dest='S').encode('latin-1')
 
+# --- 4. INTERFACE UTILISATEUR ---
 
-# --- 3. INTERFACE UTILISATEUR ---
-
-# En-tête avec Logo et Titre
-col_header_1, col_header_2 = st.columns([1, 5])
-with col_header_1:
-    if st.session_state.logo_festival:
-        st.image(st.session_state.logo_festival, width=120)
-with col_header_2:
+c_head1, c_head2 = st.columns([1, 5])
+with c_head1:
+    if st.session_state.logo_festival: st.image(st.session_state.logo_festival, width=100)
+with c_head2:
     st.title(st.session_state.nom_festival)
 
-# Onglets principaux
-tabs = st.tabs(["🏗️ Configuration & Planning", "⚙️ Patch & Régie", "📄 Exports PDF"])
+tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports & Rapports"])
 
-# ==================== ONGLET 1 : CONFIGURATION ====================
+# ==================== TAB 1 : CONFIGURATION ====================
 with tabs[0]:
-    # -- Zone Options Avancées (fermée par défaut pour ne pas polluer) --
-    with st.expander("🛠️ Options Avancées (Excel, Sauvegarde, Logo) - CLIQUE ICI POUR OUVRIR"):
+    with st.expander("Paramètres Généraux (Logo, Nom, Import Excel)"):
         c1, c2 = st.columns(2)
-        st.session_state.nom_festival = c1.text_input("Nom du Festival", st.session_state.nom_festival)
-        upl_logo = c2.file_uploader("Logo du Festival", type=["png", "jpg"])
-        if upl_logo: st.session_state.logo_festival = Image.open(upl_logo)
+        st.session_state.nom_festival = c1.text_input("Nom", st.session_state.nom_festival)
+        upl = c2.file_uploader("Logo", type=["png", "jpg"])
+        if upl: st.session_state.logo_festival = Image.open(upl)
         
         st.divider()
-        col_ex_1, col_ex_2 = st.columns(2)
-        with col_ex_1:
-            st.markdown("### 1. Importer Bibliothèque Excel")
-            st.info("Glisse ton fichier Excel ici pour mettre à jour les marques/modèles.")
-            base_excel = st.file_uploader("Fichier Excel", type=["xlsx"], label_visibility="collapsed")
-            if base_excel and st.button("Charger le fichier Excel"):
-                st.session_state.bibliotheque = charger_bibliotheque_excel(base_excel)
-                st.success("✅ Bibliothèque mise à jour avec succès !")
-        
-        with col_ex_2:
-            st.markdown("### 2. Sauvegarder / Charger Projet")
-            # Export JSON
-            data_to_save = {
-                "planning": st.session_state.planning.to_json(),
-                "fiches": st.session_state.fiches_tech.to_json(),
-                "nom": st.session_state.nom_festival
-            }
-            st.download_button("📥 Sauvegarder tout le travail (.json)", json.dumps(data_to_save), f"backup_{st.session_state.nom_festival}.json")
-            
-            # Import JSON
-            load_proj = st.file_uploader("Charger une sauvegarde", type=["json"])
-            if load_proj:
-                d = json.load(load_proj)
-                st.session_state.planning = pd.read_json(io.StringIO(d["planning"]))
-                st.session_state.fiches_tech = pd.read_json(io.StringIO(d["fiches"]))
-                st.session_state.nom_festival = d["nom"]
-                st.rerun()
+        st.write("📂 **Bibliothèque Matériel (Excel)**")
+        f_xlsx = st.file_uploader("Fichier Excel", type=["xlsx"], label_visibility="collapsed")
+        if f_xlsx and st.button("Mettre à jour la Bibliothèque"):
+            st.session_state.bibliotheque = charger_bibliotheque_excel(f_xlsx)
+            st.success("Bibliothèque chargée !")
 
-    st.divider()
-
-    # -- Saisie Artiste (Interface "Clean") --
-    st.subheader("➕ Ajouter un Artiste au Planning")
+    st.subheader("➕ Ajouter un Artiste")
     with st.container(border=True):
-        col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 1, 1])
-        in_sc = col1.text_input("Scène", "MainStage")
-        in_jo = col2.date_input("Date du passage", datetime.date.today())
-        in_art = col3.text_input("Nom de l'Artiste / Groupe")
-        in_bal = col4.text_input("Heure Balance", "14:00")
-        in_sho = col5.text_input("Heure Show", "20:00")
+        colA, colB, colC, colD, colE = st.columns([1.5, 1.5, 3, 1, 1])
+        new_scene = colA.text_input("Scène", "MainStage")
+        new_jour = colB.date_input("Date", datetime.date.today())
+        new_artiste = colC.text_input("Nom Artiste")
+        # FORMAT HORAIRE 24H : Utilisation de time_input
+        new_bal = colD.time_input("Heure Balance", datetime.time(14, 0))
+        new_show = colE.time_input("Heure Show", datetime.time(20, 0))
         
-        in_files = st.file_uploader("Glisser les Fiches Techniques (PDF) ici", accept_multiple_files=True, key=f"pdf_up_{st.session_state.pdf_uploader_key}")
+        # Uploader de PDF
+        new_pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True)
         
         if st.button("Valider l'Artiste", type="primary", use_container_width=True):
-            if in_art:
-                # Ajout au planning
-                new_row = pd.DataFrame([{"Scène": in_sc, "Jour": in_jo, "Artiste": in_art, "Balance": in_bal, "Show": in_sho}])
-                st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
+            if new_artiste:
+                # Conversion Heure -> String HH:MM pour affichage propre et tri
+                str_bal = new_bal.strftime("%H:%M")
+                str_show = new_show.strftime("%H:%M")
                 
-                # Stockage des PDF
-                if in_files:
-                    st.session_state.riders_stockage[in_art] = {f.name: f.read() for f in in_files}
+                row = pd.DataFrame([{
+                    "Scène": new_scene, "Jour": new_jour, "Artiste": new_artiste, 
+                    "Balance": str_bal, "Show": str_show
+                }])
+                st.session_state.planning = pd.concat([st.session_state.planning, row], ignore_index=True)
                 
-                # Reset uploader
-                st.session_state.pdf_uploader_key += 1
+                # Ajout PDF
+                if new_pdfs:
+                    if new_artiste not in st.session_state.riders_stockage:
+                        st.session_state.riders_stockage[new_artiste] = {}
+                    for f in new_pdfs:
+                        st.session_state.riders_stockage[new_artiste][f.name] = f.read()
                 st.rerun()
-            else:
-                st.warning("Il faut au moins un nom d'artiste !")
 
-    # -- Tableau Planning avec Croix Rouge/Verte --
-    st.subheader("📅 Planning Global")
-    if not st.session_state.planning.empty:
-        # Création colonne visuelle pour PDF
-        df_display = st.session_state.planning.copy()
-        
-        # Fonction pour dire si PDF existe ou pas
-        def check_pdf(nom_artiste):
-            if nom_artiste in st.session_state.riders_stockage and st.session_state.riders_stockage[nom_artiste]:
-                return "✅ Oui"
-            return "❌ Non"
+    col_plan_L, col_plan_R = st.columns([2, 1])
+    
+    with col_plan_L:
+        st.subheader("📅 Planning Actuel")
+        if not st.session_state.planning.empty:
+            # Affichage Planning
+            st.dataframe(st.session_state.planning, use_container_width=True, hide_index=True)
+            if st.button("🗑️ Reset Planning Complet"):
+                st.session_state.planning = st.session_state.planning.iloc[0:0]
+                st.session_state.riders_stockage = {}
+                st.session_state.fiches_tech = st.session_state.fiches_tech.iloc[0:0]
+                st.rerun()
+
+    with col_plan_R:
+        st.subheader("📁 Gestion des Fiches PDF")
+        # Interface pour SUPPRIMER ou voir les PDF
+        list_artistes_pdf = list(st.session_state.riders_stockage.keys())
+        if list_artistes_pdf:
+            art_pdf_choice = st.selectbox("Choisir Artiste", list_artistes_pdf)
+            files = st.session_state.riders_stockage[art_pdf_choice]
             
-        df_display.insert(0, "PDF Reçu ?", df_display["Artiste"].apply(check_pdf))
-        
-        edited_df = st.data_editor(
-            df_display,
-            column_config={
-                "PDF Reçu ?": st.column_config.TextColumn("Fiche Tech", disabled=True),
-            },
-            use_container_width=True,
-            num_rows="dynamic"
-        )
-        
-        # Bouton sauvegarde modifs tableau
-        if st.button("Enregistrer les modifications du tableau"):
-            # On remet le dataframe propre (sans la colonne visuelle PDF) dans le state
-            cols_to_keep = ["Scène", "Jour", "Artiste", "Balance", "Show"]
-            st.session_state.planning = edited_df[cols_to_keep]
-            st.rerun()
+            if files:
+                file_to_del = st.selectbox("Fichier à gérer", list(files.keys()))
+                if st.button(f"🗑️ Supprimer {file_to_del}"):
+                    del st.session_state.riders_stockage[art_pdf_choice][file_to_del]
+                    st.success("Fichier supprimé.")
+                    st.rerun()
+            else:
+                st.info("Dossier vide pour cet artiste.")
+        else:
+            st.info("Aucun PDF chargé.")
 
-
-# ==================== ONGLET 2 : PATCH (L'interface que tu aimais) ====================
+# ==================== TAB 2 : PATCH & RÉGIE ====================
 with tabs[1]:
     if st.session_state.planning.empty:
-        st.info("Commence par ajouter des artistes dans l'onglet Configuration.")
+        st.warning("Ajoute d'abord des artistes dans l'onglet Configuration.")
     else:
-        # Sélecteurs en haut
-        c_sel1, c_sel2, c_sel3, c_sel4 = st.columns([1, 1, 1, 2])
+        # 1. SÉLECTEURS
+        c_s1, c_s2, c_s3, c_s4 = st.columns([1, 1, 1.5, 1.5])
         
-        # Listes dynamiques basées sur le planning
-        liste_jours = sorted(st.session_state.planning["Jour"].astype(str).unique())
-        choix_jour = c_sel1.selectbox("Sélectionner le Jour", liste_jours)
+        # Filtres dynamiques
+        jours_dispo = sorted(st.session_state.planning["Jour"].astype(str).unique())
+        s_jour = c_s1.selectbox("Jour", jours_dispo)
         
-        liste_scenes = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == choix_jour]["Scène"].unique()
-        choix_scene = c_sel2.selectbox("Sélectionner la Scène", liste_scenes)
+        scenes_dispo = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == s_jour]["Scène"].unique()
+        s_scene = c_s2.selectbox("Scène", scenes_dispo)
         
-        liste_artistes = st.session_state.planning[
-            (st.session_state.planning["Jour"].astype(str) == choix_jour) & 
-            (st.session_state.planning["Scène"] == choix_scene)
-        ]["Artiste"].unique()
-        choix_artiste = c_sel3.selectbox("Sélectionner l'Artiste", liste_artistes)
-
-        # Visionneuse PDF rapide
-        with c_sel4:
-            pdfs = st.session_state.riders_stockage.get(choix_artiste, {})
-            if pdfs:
-                pdf_choisi = st.selectbox("Voir fiche technique :", list(pdfs.keys()))
-                if pdf_choisi:
-                    base64_pdf = base64.b64encode(pdfs[pdf_choisi]).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="200" type="application/pdf"></iframe>'
-                    # Petit bouton pour ouvrir en grand
-                    href = f'<a href="data:application/pdf;base64,{base64_pdf}" download="{pdf_choisi}" target="_blank">Ouvrir {pdf_choisi} en grand</a>'
-                    st.markdown(href, unsafe_allow_html=True)
+        # Tri des artistes par heure de show pour le menu
+        df_filter = st.session_state.planning[
+            (st.session_state.planning["Jour"].astype(str) == s_jour) & 
+            (st.session_state.planning["Scène"] == s_scene)
+        ].sort_values(by="Show")
+        
+        s_artiste = c_s3.selectbox("Artiste", df_filter["Artiste"].unique())
+        
+        # 2. BOUTON VERT PDF
+        with c_s4:
+            pdfs_art = st.session_state.riders_stockage.get(s_artiste, {})
+            if pdfs_art:
+                pdf_name = st.selectbox("Choisir Fiche", list(pdfs_art.keys()), label_visibility="collapsed")
+                b64_pdf = base64.b64encode(pdfs_art[pdf_name]).decode('utf-8')
+                # LE BOUTON VERT HTML
+                html_btn = f"""
+                <a href="data:application/pdf;base64,{b64_pdf}" download="{pdf_name}" target="_blank" style="text-decoration:none;">
+                    <div style="background-color:#28a745;color:white;padding:10px;text-align:center;border-radius:5px;font-weight:bold;margin-top:20px;">
+                        📄 OUVRIR FICHE TECHNIQUE
+                    </div>
+                </a>
+                """
+                st.markdown(html_btn, unsafe_allow_html=True)
             else:
-                st.warning("⚠️ Pas de PDF pour cet artiste")
+                st.markdown("<div style='margin-top:25px;color:grey;'>Pas de PDF</div>", unsafe_allow_html=True)
 
         st.divider()
 
-        # --- ZONE DE SAISIE OPTIMISÉE (Catégorie | Marque | Modèle | Qté | Checkbox) ---
-        st.markdown(f"### 📥 Saisie Patch : {choix_artiste}")
+        # 3. SAISIE DU PATCH
+        col_input, col_view = st.columns([1, 1])
         
-        with st.container(border=True):
-            # Colonnes ratio : Catégorie(2), Marque(2), Modèle(2), Qté(1), Checkbox(1), Bouton(1)
-            col_in1, col_in2, col_in3, col_in4, col_in5 = st.columns([2, 2, 2, 1, 1.5])
-            
-            cat_list = list(st.session_state.bibliotheque.keys())
-            s_cat = col_in1.selectbox("Catégorie", cat_list)
-            
-            mar_list = list(st.session_state.bibliotheque.get(s_cat, {}).keys())
-            s_mar = col_in2.selectbox("Marque", mar_list)
-            
-            mod_list = st.session_state.bibliotheque.get(s_cat, {}).get(s_mar, []) + ["+ AUTRE (Saisie Libre)"]
-            s_mod = col_in3.selectbox("Modèle", mod_list)
-            
-            if s_mod == "+ AUTRE (Saisie Libre)":
-                s_mod = col_in3.text_input("Tapez la référence...")
-            
-            s_qte = col_in4.number_input("Qté", min_value=1, value=1)
-            
-            # CHECKBOX "AMENÉ PAR L'ARTISTE" (Directement accessible ici)
-            is_brought = col_in5.checkbox("Amené par Artiste ?")
-            
-            if st.button("Ajouter ligne", use_container_width=True):
-                new_line = {
-                    "Scène": choix_scene,
-                    "Jour": choix_jour,
-                    "Groupe": choix_artiste,
-                    "Catégorie": s_cat,
-                    "Marque": s_mar,
-                    "Modèle": s_mod,
-                    "Quantité": s_qte,
-                    "Artiste_Apporte": is_brought
-                }
-                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, pd.DataFrame([new_line])], ignore_index=True)
-                st.rerun()
-
-        # --- AFFICHAGE CÔTE À CÔTE (Patch Individuel vs Cumul) ---
-        col_gauche, col_droite = st.columns([1, 1])
-        
-        with col_gauche:
-            st.subheader(f"📋 Liste Matériel : {choix_artiste}")
-            # Filtre pour n'afficher que l'artiste en cours
-            mask = (st.session_state.fiches_tech["Groupe"] == choix_artiste) & \
-                   (st.session_state.fiches_tech["Jour"].astype(str) == str(choix_jour))
-            
-            df_art = st.session_state.fiches_tech[mask]
-            
-            # Editeur pour pouvoir supprimer ou modifier des lignes
-            df_edited = st.data_editor(df_art, num_rows="dynamic", use_container_width=True, key="editor_patch")
-            
-            # Bouton de sauvegarde spécifique au patch
-            if st.button("💾 Sauvegarder modifications patch"):
-                # On met à jour le DataFrame principal
-                # 1. On enlève les anciennes lignes de cet artiste
-                st.session_state.fiches_tech = st.session_state.fiches_tech[~mask]
-                # 2. On remet les nouvelles
-                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, df_edited], ignore_index=True)
-                st.rerun()
-
-        with col_droite:
-            st.subheader(f"📊 Cumul Journée (N+N+1)")
-            # Calcul en temps réel
-            df_besoin = calculer_besoin_journee(st.session_state.fiches_tech, st.session_state.planning, choix_scene, choix_jour)
-            
-            if df_besoin.empty:
-                st.info("Rien à calculer pour l'instant (ou pas assez d'artistes).")
-            else:
-                st.dataframe(df_besoin, use_container_width=True, hide_index=True)
-                st.caption("Ce tableau montre ce que la régie doit fournir (Max des binômes).")
-
-
-# ==================== ONGLET 3 : EXPORTS (Fonctionnels) ====================
-with tabs[2]:
-    st.header("📄 Génération des documents PDF")
-    
-    c_exp1, c_exp2 = st.columns(2)
-    
-    with c_exp1:
-        st.subheader("1. Planning Officiel")
-        if st.button("Générer le PDF Planning"):
-            pdf_data = export_planning_structured(st.session_state.planning, f"Planning - {st.session_state.nom_festival}")
-            st.download_button("📥 Télécharger Planning.pdf", pdf_data, "planning_festival.pdf", "application/pdf")
-            
-    with c_exp2:
-        st.subheader("2. Liste Matériel (Régie)")
-        st.write("Génère la liste du matériel que la régie doit fournir (calcul N+N+1).")
-        
-        # Choix contextuel pour l'export
-        if not st.session_state.planning.empty:
-            jour_export = st.selectbox("Pour quel jour ?", sorted(st.session_state.planning["Jour"].astype(str).unique()), key="exp_j")
-            scene_export = st.selectbox("Pour quelle scène ?", st.session_state.planning["Scène"].unique(), key="exp_s")
-            
-            if st.button("Générer Liste Matériel"):
-                # On fait le calcul pour le PDF
-                df_calc = calculer_besoin_journee(st.session_state.fiches_tech, st.session_state.planning, scene_export, jour_export)
+        with col_input:
+            st.subheader(f"📥 Saisie : {s_artiste}")
+            with st.container(border=True):
+                # Formulaire
+                cat = st.selectbox("Catégorie", list(st.session_state.bibliotheque.keys()))
+                mar = st.selectbox("Marque", list(st.session_state.bibliotheque[cat].keys()))
+                mod_list = st.session_state.bibliotheque[cat][mar] + ["AUTRE"]
+                mod = st.selectbox("Modèle", mod_list)
+                if mod == "AUTRE": mod = st.text_input("Référence exacte")
                 
-                pdf_matos = export_categorized_pdf(df_calc, f"Besoin Matériel - {scene_export} - {jour_export}")
-                st.download_button("📥 Télécharger Liste Matériel.pdf", pdf_matos, f"matos_{scene_export}_{jour_export}.pdf", "application/pdf")
-        else:
-            st.warning("Remplissez d'abord le planning.")
+                c_q1, c_q2 = st.columns(2)
+                qte = c_q1.number_input("Quantité", 1, 100, 1)
+                is_perso = c_q2.checkbox("Fourni Artiste")
+                
+                if st.button("Ajouter / Mettre à jour", use_container_width=True):
+                    # LOGIQUE CUMUL : On vérifie si la ligne existe déjà
+                    df_curr = st.session_state.fiches_tech
+                    mask = (
+                        (df_curr["Groupe"] == s_artiste) &
+                        (df_curr["Scène"] == s_scene) &
+                        (df_curr["Jour"].astype(str) == str(s_jour)) &
+                        (df_curr["Catégorie"] == cat) &
+                        (df_curr["Marque"] == mar) &
+                        (df_curr["Modèle"] == mod) &
+                        (df_curr["Artiste_Apporte"] == is_perso)
+                    )
+                    
+                    if df_curr[mask].any():
+                        # Si existe : on ajoute la quantité
+                        idx = df_curr[mask].index[0]
+                        st.session_state.fiches_tech.at[idx, "Quantité"] += qte
+                        st.success(f"Quantité mise à jour (+{qte})")
+                    else:
+                        # Sinon : nouvelle ligne
+                        new_line = pd.DataFrame([{
+                            "Scène": s_scene, "Jour": s_jour, "Groupe": s_artiste,
+                            "Catégorie": cat, "Marque": mar, "Modèle": mod, 
+                            "Quantité": qte, "Artiste_Apporte": is_perso
+                        }])
+                        st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_line], ignore_index=True)
+                        st.success("Ajouté !")
+                    st.rerun()
+
+            # Liste Patch Artiste
+            st.caption("Matériel saisi pour ce groupe :")
+            mask_art = (st.session_state.fiches_tech["Groupe"] == s_artiste)
+            # Data Editor pour permettre suppression/modif rapide
+            edited_patch = st.data_editor(st.session_state.fiches_tech[mask_art], use_container_width=True, num_rows="dynamic", key="patch_editor")
+            
+            if st.button("Sauvegarder Modifs Tableau"):
+                # Mise à jour globale
+                st.session_state.fiches_tech = st.session_state.fiches_tech[~mask_art] # On retire l'ancien
+                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, edited_patch], ignore_index=True) # On met le nouveau
+                st.rerun()
+
+        # 4. TABLEAU DE DROITE : BESOIN JOUR X SCENE X (Calcul N+N+1)
+        with col_view:
+            st.markdown(f"### 📊 Besoin {s_jour} - {s_scene}")
+            st.caption("Calcul : MAX ( Groupe N + Groupe N+1 )")
+            
+            # Appel de la fonction de calcul
+            df_besoin = calculer_besoin_max_scene(st.session_state.fiches_tech, st.session_state.planning, s_scene, s_jour)
+            
+            if not df_besoin.empty:
+                st.dataframe(df_besoin, use_container_width=True, height=500)
+            else:
+                st.info("Pas encore de matériel validé pour cette journée/scène.")
+
+# ==================== TAB 3 : EXPORTS ====================
+with tabs[2]:
+    st.title("🖨️ Édition des Rapports")
+    st.write("Génération du dossier complet incluant : Planning, Détail par Scène (N+N+1) et Récapitulatif Festival.")
+    
+    col_exp_1, col_exp_2 = st.columns(2)
+    
+    with col_exp_1:
+        st.info("Ce rapport contient exactement les mêmes données que les tableaux de l'application.")
+        if st.button("GÉNÉRER LE DOSSIER PDF COMPLET", type="primary"):
+            pdf_bytes = generer_pdf_global()
+            st.download_button(
+                label="📥 Télécharger Dossier_Technique.pdf",
+                data=pdf_bytes,
+                file_name=f"Dossier_Tech_{st.session_state.nom_festival}.pdf",
+                mime="application/pdf"
+            )
+            
+    with col_exp_2:
+        st.write("Sauvegarde Projet (JSON)")
+        # Export JSON pour backup
+        data_json = {
+            "planning": st.session_state.planning.to_json(),
+            "fiches": st.session_state.fiches_tech.to_json(),
+            "nom": st.session_state.nom_festival
+        }
+        st.download_button("📥 Sauvegarder Projet (.json)", json.dumps(data_json), "backup_festival.json")
