@@ -1,5 +1,7 @@
 streamlit
 pandas
 fpdf
+fpdf2
 Pillow
 openpyxl
+
