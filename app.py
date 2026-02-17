@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
-import base64
 import datetime
+from fpdf import FPDF
+import io
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide")
 
-# Initialisation des variables de session
+# --- INITIALISATION DES VARIABLES DE SESSION ---
 if 'planning' not in st.session_state:
     st.session_state.planning = pd.DataFrame(columns=["Scène", "Jour", "Artiste", "Balance", "Show"])
 if 'fiches_tech' not in st.session_state:
@@ -20,7 +21,37 @@ if 'delete_confirm_idx' not in st.session_state:
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
 
-# --- INTERFACE ---
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
+def creer_pdf_depuis_df(titre, dataframe):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, titre, ln=True, align='C')
+    pdf.ln(10)
+    
+    # Configuration des colonnes
+    pdf.set_font("helvetica", "B", 10)
+    cols = list(dataframe.columns)
+    col_width = (pdf.w - 20) / len(cols)
+    
+    # En-tête du tableau
+    pdf.set_fill_color(200, 220, 255)
+    for col in cols:
+        pdf.cell(col_width, 10, str(col), border=1, fill=True, align='C')
+    pdf.ln()
+    
+    # Données
+    pdf.set_font("helvetica", "", 9)
+    for _, row in dataframe.iterrows():
+        if pdf.get_y() > 260:
+            pdf.add_page()
+        for item in row:
+            pdf.cell(col_width, 8, str(item), border=1, align='C')
+        pdf.ln()
+    
+    return pdf.output()
+
+# --- INTERFACE PRINCIPALE ---
 st.title("Nouveau Festival")
 tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF"])
 
@@ -49,7 +80,6 @@ with tabs[0]:
                 st.rerun()
 
     st.subheader("📋 Planning Global")
-    
     if st.session_state.delete_confirm_idx is not None:
         idx = st.session_state.delete_confirm_idx
         with st.status("⚠️ Confirmation de suppression", expanded=True):
@@ -67,14 +97,10 @@ with tabs[0]:
                 st.rerun()
 
     if not st.session_state.planning.empty:
-        # TRI AUTOMATIQUE : Jour -> Scène -> Show
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        
         ed_plan = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
-        
         if st.session_state.main_editor["deleted_rows"]:
-            # On récupère l'index réel du DataFrame trié pour la suppression
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
 
@@ -105,14 +131,13 @@ with tabs[0]:
 with tabs[1]:
     if not st.session_state.planning.empty:
         f1, f2, f3 = st.columns(3)
-        with f1:
-            sel_j = st.selectbox("📅 Choisir le Jour", sorted(st.session_state.planning["Jour"].unique()))
+        with f1: sel_j = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()))
         with f2:
             scenes = st.session_state.planning[st.session_state.planning["Jour"] == sel_j]["Scène"].unique()
-            sel_s = st.selectbox("🏗️ Choisir la Scène", scenes)
+            sel_s = st.selectbox("🏗️ Scène", scenes)
         with f3:
             artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
-            sel_a = st.selectbox("🎸 Choisir le Groupe", artistes)
+            sel_a = st.selectbox("🎸 Groupe", artistes)
 
         if sel_a:
             st.subheader(f"📥 Saisie Matériel : {sel_a}")
@@ -123,12 +148,8 @@ with tabs[1]:
                 v_mod = c_mod.text_input("Modèle", "SM58")
                 v_qte = c_qte.number_input("Qté", 1, 500, 1)
                 v_app = c_app.checkbox("Artiste Apporte")
-                
                 if st.button("Ajouter au Patch"):
-                    mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & \
-                           (st.session_state.fiches_tech["Modèle"] == v_mod) & \
-                           (st.session_state.fiches_tech["Marque"] == v_mar) & \
-                           (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
+                    mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                     if not st.session_state.fiches_tech[mask].empty:
                         st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                     else:
@@ -137,31 +158,25 @@ with tabs[1]:
                     st.rerun()
 
             st.divider()
-            
             if st.session_state.delete_confirm_patch_idx is not None:
                 pidx = st.session_state.delete_confirm_patch_idx
                 with st.status("⚠️ Retirer cet item ?", expanded=True):
                     st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
-                    cp1, cp2 = st.columns(2)
-                    if cp1.button("✅ Confirmer", use_container_width=True):
+                    if st.button("✅ Confirmer"):
                         st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
                         st.session_state.delete_confirm_patch_idx = None
                         st.rerun()
-                    if cp2.button("❌ Annuler", use_container_width=True):
+                    if st.button("❌ Annuler"):
                         st.session_state.delete_confirm_patch_idx = None
                         st.rerun()
 
             col_patch, col_besoin = st.columns(2)
-
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a}")
-                # TRI AUTOMATIQUE : Catégorie -> Marque
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
                 ed_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
-                
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
-                    idx_to_del = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
-                    st.session_state.delete_confirm_patch_idx = idx_to_del
+                    st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                     st.rerun()
 
             with col_besoin:
@@ -169,137 +184,66 @@ with tabs[1]:
                 plan_trié = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)].sort_values("Show")
                 liste_art = plan_trié["Artiste"].tolist()
                 df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == sel_s) & (st.session_state.fiches_tech["Jour"] == sel_j) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-
                 if not df_b.empty:
                     matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                    for a in liste_art:
+                    for a in liste_art: 
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
-                    if len(liste_art) > 1:
-                        gliss = [matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)]
-                        res = pd.concat(gliss, axis=1).max(axis=1)
-                    else:
-                        res = matrice.iloc[:, 0]
-                    # Tri du résultat final par catégorie pour la clarté
-                    res_visu = res.reset_index().rename(columns={0: "Total Journée"}).sort_values(by=["Catégorie", "Marque"])
-                    st.dataframe(res_visu, use_container_width=True)
-                else:
-                    st.info("Aucun besoin à afficher.")
+                    res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
+                    st.dataframe(res.reset_index().rename(columns={0: "Total Journée"}).sort_values(by=["Catégorie", "Marque"]), use_container_width=True)
 
-# --- IMPORT À RAJOUTER EN HAUT DU FICHIER ---
-from fpdf import FPDF
-
-# --- REMPLACEMENT DU CONTENU DE L'ONGLET 3 ---
+# --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
     st.header("📄 Génération des Exports PDF")
-    
-    # Préparation des listes pour les filtres
-    liste_jours = sorted(st.session_state.planning["Jour"].unique())
-    liste_scenes = sorted(st.session_state.planning["Scène"].unique())
+    l_jours = sorted(st.session_state.planning["Jour"].unique())
+    l_scenes = sorted(st.session_state.planning["Scène"].unique())
+    cex1, cex2 = st.columns(2)
 
-    col_exp1, col_exp2 = st.columns(2)
-
-    # --- EXPORT 1 : PLANNINGS ---
-    with col_exp1:
+    with cex1:
         st.subheader("🗓️ Export Plannings")
         with st.container(border=True):
-            mode_plan = st.radio("Périmètre du planning", ["Global", "Par Jour", "Par Scène"], key="r_plan")
-            
-            sel_j_exp = None
-            sel_s_exp = None
-            
-            if mode_plan == "Par Jour":
-                sel_j_exp = st.selectbox("Choisir le jour à exporter", liste_jours, key="j_exp_p")
-            elif mode_plan == "Par Scène":
-                sel_s_exp = st.selectbox("Choisir la scène à exporter", liste_scenes, key="s_exp_p")
-
+            m_plan = st.radio("Périmètre", ["Global", "Par Jour", "Par Scène"], key="mp")
+            s_j_p = st.selectbox("Jour", l_jours) if m_plan == "Par Jour" else None
+            s_s_p = st.selectbox("Scène", l_scenes) if m_plan == "Par Scène" else None
             if st.button("Générer PDF Planning", use_container_width=True):
-                if st.session_state.planning.empty:
-                    st.error("Le planning est vide !")
-                else:
-                    # Logique de filtrage pour l'export
-                    df_to_export = st.session_state.planning.copy()
-                    if mode_plan == "Par Jour":
-                        df_to_export = df_to_export[df_to_export["Jour"] == sel_j_exp]
-                    elif mode_plan == "Par Scène":
-                        df_to_export = df_to_export[df_to_export["Scène"] == sel_s_exp]
-                    
-                    st.success(f"PDF Planning ({mode_plan}) prêt !")
-                    # Pour l'instant on génère un CSV pour tester la data, 
-                    # je peux te donner la fonction PDF complète si la structure te convient.
-                    csv_p = df_to_export.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Télécharger le PDF", csv_p, "planning.csv", "text/csv")
+                df_p = st.session_state.planning.copy()
+                titre = "Planning Global"
+                if m_plan == "Par Jour": df_p = df_p[df_p["Jour"] == s_j_p]; titre = f"Planning {s_j_p}"
+                elif m_plan == "Par Scène": df_p = df_p[df_p["Scène"] == s_s_p]; titre = f"Planning Scène {s_s_p}"
+                pdf_p = creer_pdf_depuis_df(titre, df_p)
+                st.download_button("📥 Télécharger PDF", pdf_p, f"{titre}.pdf", "application/pdf")
 
-    # --- EXPORT 2 : BESOINS MATÉRIEL ---
-    with col_exp2:
-        st.subheader("📦 Export Besoins Matériel")
+    with cex2:
+        st.subheader("📦 Export Besoins")
         with st.container(border=True):
-            mode_besoin = st.radio("Type d'analyse", ["Par Jour & Par Scène", "Total Période par Scène"], key="r_mat")
-            
-            sel_j_mat = None
-            sel_s_mat = st.selectbox("Choisir la Scène", liste_scenes, key="s_exp_m")
-            
-            if mode_besoin == "Par Jour & Par Scène":
-                sel_j_mat = st.selectbox("Choisir le Jour", liste_jours, key="j_exp_m")
-
+            m_bes = st.radio("Type", ["Par Jour & Scène", "Total Période par Scène"], key="mb")
+            s_s_m = st.selectbox("Scène", l_scenes, key="ssm")
+            s_j_m = st.selectbox("Jour", l_jours, key="sjm") if m_bes == "Par Jour & Scène" else None
             if st.button("Générer PDF Besoins", use_container_width=True):
-                if st.session_state.fiches_tech.empty:
-                    st.error("Aucun matériel dans le patch !")
+                df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                if m_bes == "Par Jour & Scène":
+                    df_j = df_base[df_base["Jour"] == s_j_m]
+                    arts = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_m) & (st.session_state.planning["Scène"] == s_s_m)].sort_values("Show")["Artiste"].tolist()
+                    if arts and not df_j.empty:
+                        mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                        for a in arts: 
+                            if a not in mat.columns: mat[a] = 0
+                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                        pdf_b = creer_pdf_depuis_df(f"Besoins {s_s_m} - {s_j_m}", res.reset_index().rename(columns={0: "Total"}))
+                        st.download_button("📥 Télécharger PDF", pdf_b, f"besoins_{s_s_m}_{s_j_m}.pdf", "application/pdf")
                 else:
-                    df_b = st.session_state.fiches_tech[
-                        (st.session_state.fiches_tech["Scène"] == sel_s_mat) & 
-                        (st.session_state.fiches_tech["Artiste_Apporte"] == False)
-                    ]
-
-                    if mode_besoin == "Par Jour & Par Scène":
-                        # Filtrage sur le jour précis
-                        df_res = df_b[df_b["Jour"] == sel_j_mat]
-                        # Calcul identique Onglet 2 (N+1)
-                        plan_tri = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_mat) & (st.session_state.planning["Scène"] == sel_s_mat)].sort_values("Show")
-                        liste_art = plan_tri["Artiste"].tolist()
-                        
-                        if not df_res.empty and liste_art:
-                            matrice = df_res.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                            for a in liste_art:
-                                if a not in matrice.columns: matrice[a] = 0
-                            matrice = matrice[liste_art]
-                            if len(liste_art) > 1:
-                                res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1)
-                            else:
-                                res = matrice.iloc[:, 0]
-                            final_df = res.reset_index().rename(columns={0: "Total"})
-                            st.write(f"Export J:{sel_j_mat} / S:{sel_s_mat}")
-                            st.dataframe(final_df, use_container_width=True)
-                        else:
-                            st.warning("Pas de données pour ce jour/scène.")
-
-                    else:
-                        # --- CALCUL TOTAL PÉRIODE (MAX DES JOURS) ---
-                        # 1. Calculer le besoin max par jour pour cette scène
-                        # On groupe par jour pour avoir le "pic" quotidien
-                        jours_scène = df_b["Jour"].unique()
-                        all_days_needs = []
-
-                        for j in jours_scène:
-                            df_j = df_b[df_b["Jour"] == j]
-                            plan_j = st.session_state.planning[(st.session_state.planning["Jour"] == j) & (st.session_state.planning["Scène"] == sel_s_mat)].sort_values("Show")
-                            arts = plan_j["Artiste"].tolist()
-                            if arts:
-                                mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                                for a in arts:
-                                    if a not in mat.columns: mat[a] = 0
-                                mat = mat[arts]
-                                if len(arts) > 1:
-                                    res_j = pd.concat([mat.iloc[:, i] + mat.iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
-                                else:
-                                    res_j = mat.iloc[:, 0]
-                                all_days_needs.append(res_j)
-                        
-                        if all_days_needs:
-                            # On prend le MAX de chaque item sur tous les jours calculés
-                            final_periode = pd.concat(all_days_needs, axis=1).max(axis=1).reset_index().rename(columns={0: "Besoin Max Période"})
-                            st.write(f"Export Période complète - Scène : {sel_s_mat}")
-                            st.dataframe(final_periode, use_container_width=True)
-                            
-                            csv_besoin = final_periode.to_csv(index=False).encode('utf-8')
-                            st.download_button("📥 Télécharger PDF Besoins Période", csv_besoin, f"besoins_periode_{sel_s_mat}.csv")
+                    # Calcul MAX sur période
+                    all_needs = []
+                    for j in df_base["Jour"].unique():
+                        df_j = df_base[df_base["Jour"] == j]
+                        arts = st.session_state.planning[(st.session_state.planning["Jour"] == j) & (st.session_state.planning["Scène"] == s_s_m)].sort_values("Show")["Artiste"].tolist()
+                        if arts:
+                            mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                            for a in arts: 
+                                if a not in mat.columns: mat[a] = 0
+                            res_j = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                            all_needs.append(res_j)
+                    if all_needs:
+                        res_p = pd.concat(all_needs, axis=1).max(axis=1).reset_index().rename(columns={0: "Max Période"})
+                        pdf_p = creer_pdf_depuis_df(f"Besoins MAX {s_s_m}", res_p)
+                        st.download_button("📥 Télécharger PDF", pdf_p, f"Besoins_MAX_{s_s_m}.pdf", "application/pdf")
