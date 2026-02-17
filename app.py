@@ -21,42 +21,62 @@ if 'delete_confirm_idx' not in st.session_state:
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
 
-# --- FONCTION TECHNIQUE POUR LE RENDU PDF (CORRIGÉE POUR LES BYTES) ---
-def creer_pdf_depuis_df(titre, dataframe):
-    pdf = FPDF()
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF MULTI-TABLEAUX ---
+class FestivalPDF(FPDF):
+    def header(self):
+        self.set_font("helvetica", "B", 12)
+        self.cell(0, 10, "DOCUMENTS REGIE FESTIVAL", border=0, ln=1, align="R")
+        self.ln(5)
+
+    def ajouter_titre_section(self, titre):
+        self.set_font("helvetica", "B", 14)
+        self.set_fill_color(240, 240, 240)
+        self.cell(0, 10, titre, ln=True, fill=True, border="B")
+        self.ln(3)
+
+    def dessiner_tableau(self, df):
+        if df.empty: return
+        self.set_font("helvetica", "B", 10)
+        cols = list(df.columns)
+        col_width = (self.w - 20) / len(cols)
+        
+        # En-tête
+        self.set_fill_color(200, 220, 255)
+        for col in cols:
+            self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
+        self.ln()
+        
+        # Lignes
+        self.set_font("helvetica", "", 9)
+        for _, row in df.iterrows():
+            if self.get_y() > 260: self.add_page()
+            for item in row:
+                self.cell(col_width, 7, str(item), border=1, align='C')
+            self.ln()
+        self.ln(5)
+
+def generer_pdf_complet(titre_doc, dictionnaire_dfs):
+    """
+    dictionnaire_dfs format: {"Titre Section": Dataframe}
+    """
+    pdf = FestivalPDF()
     pdf.add_page()
-    pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, titre, ln=True, align='C')
+    pdf.set_font("helvetica", "B", 20)
+    pdf.cell(0, 15, titre_doc, ln=True, align='C')
     pdf.ln(10)
+
+    for section, df in dictionnaire_dfs.items():
+        if not df.empty:
+            pdf.ajouter_titre_section(section)
+            pdf.dessiner_tableau(df)
     
-    # Configuration des colonnes
-    pdf.set_font("helvetica", "B", 10)
-    cols = list(dataframe.columns)
-    col_width = (pdf.w - 20) / len(cols)
-    
-    # En-tête du tableau
-    pdf.set_fill_color(200, 220, 255)
-    for col in cols:
-        pdf.cell(col_width, 10, str(col), border=1, fill=True, align='C')
-    pdf.ln()
-    
-    # Données
-    pdf.set_font("helvetica", "", 9)
-    for _, row in dataframe.iterrows():
-        if pdf.get_y() > 260:
-            pdf.add_page()
-        for item in row:
-            pdf.cell(col_width, 8, str(item), border=1, align='C')
-        pdf.ln()
-    
-    # Sortie en bytes pour éviter l'erreur StreamlitAPIException
     return bytes(pdf.output())
 
 # --- INTERFACE PRINCIPALE ---
 st.title("Nouveau Festival")
 tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF"])
 
-# --- ONGLET 1 : CONFIGURATION ---
+# --- ONGLET 1 : CONFIGURATION (INCHANGÉ) ---
 with tabs[0]:
     st.subheader("➕ Ajouter un Artiste")
     with st.container(border=True):
@@ -89,8 +109,7 @@ with tabs[0]:
             if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
                 nom_art = st.session_state.planning.iloc[idx]['Artiste']
                 st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
-                if nom_art in st.session_state.riders_stockage:
-                    del st.session_state.riders_stockage[nom_art]
+                if nom_art in st.session_state.riders_stockage: del st.session_state.riders_stockage[nom_art]
                 st.session_state.delete_confirm_idx = None
                 st.rerun()
             if col_cfg2.button("❌ Annuler", use_container_width=True):
@@ -124,11 +143,10 @@ with tabs[0]:
                 nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
                 if st.button("Enregistrer les nouveaux PDF"):
                     if nouveaux_pdf:
-                        for f in nouveaux_pdf:
-                            st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
+                        for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
-# --- ONGLET 2 : PATCH & RÉGIE ---
+# --- ONGLET 2 : PATCH & RÉGIE (INCHANGÉ) ---
 with tabs[1]:
     if not st.session_state.planning.empty:
         f1, f2, f3 = st.columns(3)
@@ -161,7 +179,7 @@ with tabs[1]:
             st.divider()
             if st.session_state.delete_confirm_patch_idx is not None:
                 pidx = st.session_state.delete_confirm_patch_idx
-                with st.status("⚠️ Retirer cet item ?", expanded=True):
+                with st.status("⚠️ Confirmation", expanded=True):
                     st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
                     if st.button("✅ Confirmer"):
                         st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
@@ -191,9 +209,9 @@ with tabs[1]:
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                    st.dataframe(res.reset_index().rename(columns={0: "Total Journée"}).sort_values(by=["Catégorie", "Marque"]), use_container_width=True)
+                    st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
 
-# --- ONGLET 3 : EXPORTS PDF ---
+# --- ONGLET 3 : EXPORTS PDF (STRUCTURÉS) ---
 with tabs[2]:
     st.header("📄 Génération des Exports PDF")
     l_jours = sorted(st.session_state.planning["Jour"].unique())
@@ -206,13 +224,23 @@ with tabs[2]:
             m_plan = st.radio("Périmètre", ["Global", "Par Jour", "Par Scène"], key="mp")
             s_j_p = st.selectbox("Jour", l_jours) if m_plan == "Par Jour" else None
             s_s_p = st.selectbox("Scène", l_scenes) if m_plan == "Par Scène" else None
+            
             if st.button("Générer PDF Planning", use_container_width=True):
                 df_p = st.session_state.planning.copy()
-                titre = "Planning Global"
-                if m_plan == "Par Jour": df_p = df_p[df_p["Jour"] == s_j_p]; titre = f"Planning {s_j_p}"
-                elif m_plan == "Par Scène": df_p = df_p[df_p["Scène"] == s_s_p]; titre = f"Planning Scène {s_s_p}"
-                pdf_p = creer_pdf_depuis_df(titre, df_p)
-                st.download_button("📥 Télécharger PDF", pdf_p, f"{titre}.pdf", "application/pdf")
+                dico_sections = {}
+                
+                # Logique de segmentation
+                jours_a_traiter = [s_j_p] if m_plan == "Par Jour" else l_jours
+                scenes_a_traiter = [s_s_p] if m_plan == "Par Scène" else l_scenes
+                
+                for j in jours_a_traiter:
+                    for s in scenes_a_traiter:
+                        sub_df = df_p[(df_p["Jour"] == j) & (df_p["Scène"] == s)].sort_values("Show")
+                        if not sub_df.empty:
+                            dico_sections[f"JOUR : {j} | SCENE : {s}"] = sub_df[["Artiste", "Balance", "Show"]]
+                
+                pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections)
+                st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
 
     with cex2:
         st.subheader("📦 Export Besoins")
@@ -220,30 +248,39 @@ with tabs[2]:
             m_bes = st.radio("Type", ["Par Jour & Scène", "Total Période par Scène"], key="mb")
             s_s_m = st.selectbox("Scène", l_scenes, key="ssm")
             s_j_m = st.selectbox("Jour", l_jours, key="sjm") if m_bes == "Par Jour & Scène" else None
+            
             if st.button("Générer PDF Besoins", use_container_width=True):
                 df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                dico_besoins = {}
+                
+                # Fonction interne pour calculer le pic N+1
+                def calcul_pic(df_input, jour, scene):
+                    plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                    arts = plan["Artiste"].tolist()
+                    if not arts or df_input.empty: return pd.DataFrame()
+                    mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                    for a in arts: 
+                        if a not in mat.columns: mat[a] = 0
+                    res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                    return res.reset_index().rename(columns={0: "Total"})
+
                 if m_bes == "Par Jour & Scène":
-                    df_j = df_base[df_base["Jour"] == s_j_m]
-                    arts = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_m) & (st.session_state.planning["Scène"] == s_s_m)].sort_values("Show")["Artiste"].tolist()
-                    if arts and not df_j.empty:
-                        mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                        for a in arts: 
-                            if a not in mat.columns: mat[a] = 0
-                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                        pdf_b = creer_pdf_depuis_df(f"Besoins {s_s_m} - {s_j_m}", res.reset_index().rename(columns={0: "Total"}))
-                        st.download_button("📥 Télécharger PDF", pdf_b, f"besoins_{s_s_m}_{s_j_m}.pdf", "application/pdf")
+                    data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
+                    if not data_pic.empty:
+                        for cat in data_pic["Catégorie"].unique():
+                            dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][["Marque", "Modèle", "Total"]]
                 else:
-                    all_needs = []
+                    # MAX sur Période
+                    all_days_res = []
                     for j in df_base["Jour"].unique():
-                        df_j = df_base[df_base["Jour"] == j]
-                        arts = st.session_state.planning[(st.session_state.planning["Jour"] == j) & (st.session_state.planning["Scène"] == s_s_m)].sort_values("Show")["Artiste"].tolist()
-                        if arts:
-                            mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                            for a in arts: 
-                                if a not in mat.columns: mat[a] = 0
-                            res_j = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                            all_needs.append(res_j)
-                    if all_needs:
-                        res_p = pd.concat(all_needs, axis=1).max(axis=1).reset_index().rename(columns={0: "Max Période"})
-                        pdf_p = creer_pdf_depuis_df(f"Besoins MAX {s_s_m}", res_p)
-                        st.download_button("📥 Télécharger PDF", pdf_p, f"Besoins_MAX_{s_s_m}.pdf", "application/pdf")
+                        res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                        if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                    
+                    if all_days_res:
+                        final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                        for cat in final["Catégorie"].unique():
+                            dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][["Marque", "Modèle", "Max_Periode"]]
+
+                titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
+                pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
+                st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
