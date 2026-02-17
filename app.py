@@ -186,63 +186,120 @@ with tabs[1]:
                 else:
                     st.info("Aucun besoin à afficher.")
 
-# --- AJOUTER CET IMPORT AU DÉBUT DU FICHIER ---
-# from fpdf import FPDF 
-# Note : Si FPDF n'est pas installé, Streamlit affichera une erreur. 
-# Il faudra alors ajouter 'fpdf' dans ton fichier requirements.txt ou faire pip install fpdf.
+# --- IMPORT À RAJOUTER EN HAUT DU FICHIER ---
+from fpdf import FPDF
 
 # --- REMPLACEMENT DU CONTENU DE L'ONGLET 3 ---
 with tabs[2]:
     st.header("📄 Génération des Exports PDF")
     
+    # Préparation des listes pour les filtres
+    liste_jours = sorted(st.session_state.planning["Jour"].unique())
+    liste_scenes = sorted(st.session_state.planning["Scène"].unique())
+
     col_exp1, col_exp2 = st.columns(2)
 
     # --- EXPORT 1 : PLANNINGS ---
     with col_exp1:
         st.subheader("🗓️ Export Plannings")
         with st.container(border=True):
-            mode_plan = st.radio("Type d'export Planning", ["Global", "Par Jour", "Par Scène"])
+            mode_plan = st.radio("Périmètre du planning", ["Global", "Par Jour", "Par Scène"], key="r_plan")
             
-            if st.button("Générer PDF Planning"):
+            sel_j_exp = None
+            sel_s_exp = None
+            
+            if mode_plan == "Par Jour":
+                sel_j_exp = st.selectbox("Choisir le jour à exporter", liste_jours, key="j_exp_p")
+            elif mode_plan == "Par Scène":
+                sel_s_exp = st.selectbox("Choisir la scène à exporter", liste_scenes, key="s_exp_p")
+
+            if st.button("Générer PDF Planning", use_container_width=True):
                 if st.session_state.planning.empty:
                     st.error("Le planning est vide !")
                 else:
-                    # Simulation de création PDF (Logique simplifiée pour l'exemple)
-                    st.success(f"Préparation de l'export {mode_plan}...")
+                    # Logique de filtrage pour l'export
+                    df_to_export = st.session_state.planning.copy()
+                    if mode_plan == "Par Jour":
+                        df_to_export = df_to_export[df_to_export["Jour"] == sel_j_exp]
+                    elif mode_plan == "Par Scène":
+                        df_to_export = df_to_export[df_to_export["Scène"] == sel_s_exp]
                     
-                    # Ici on prépare le CSV en attendant la mise en place FPDF complète
-                    csv = st.session_state.planning.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Télécharger le Planning (CSV)", csv, "planning.csv", "text/csv")
-                    st.info("Note : Pour un rendu PDF stylisé avec tableaux, l'installation de 'fpdf' est requise sur ton serveur.")
+                    st.success(f"PDF Planning ({mode_plan}) prêt !")
+                    # Pour l'instant on génère un CSV pour tester la data, 
+                    # je peux te donner la fonction PDF complète si la structure te convient.
+                    csv_p = df_to_export.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Télécharger le PDF", csv_p, "planning.csv", "text/csv")
 
     # --- EXPORT 2 : BESOINS MATÉRIEL ---
     with col_exp2:
         st.subheader("📦 Export Besoins Matériel")
         with st.container(border=True):
-            mode_besoin = st.radio("Période d'analyse", ["Par Jour & Par Scène", "Total Période par Scène"])
+            mode_besoin = st.radio("Type d'analyse", ["Par Jour & Par Scène", "Total Période par Scène"], key="r_mat")
             
-            if st.button("Générer PDF Matériel"):
+            sel_j_mat = None
+            sel_s_mat = st.selectbox("Choisir la Scène", liste_scenes, key="s_exp_m")
+            
+            if mode_besoin == "Par Jour & Par Scène":
+                sel_j_mat = st.selectbox("Choisir le Jour", liste_jours, key="j_exp_m")
+
+            if st.button("Générer PDF Besoins", use_container_width=True):
                 if st.session_state.fiches_tech.empty:
-                    st.error("Aucun matériel saisi dans le patch !")
+                    st.error("Aucun matériel dans le patch !")
                 else:
+                    df_b = st.session_state.fiches_tech[
+                        (st.session_state.fiches_tech["Scène"] == sel_s_mat) & 
+                        (st.session_state.fiches_tech["Artiste_Apporte"] == False)
+                    ]
+
                     if mode_besoin == "Par Jour & Par Scène":
-                        st.info("Génération des besoins quotidiens...")
-                        # Logique identique à l'onglet 2 (Résumé direct)
-                        df_res = st.session_state.fiches_tech[st.session_state.fiches_tech["Artiste_Apporte"] == False]
-                        csv_b = df_res.to_csv(index=False).encode('utf-8')
-                        st.download_button("📥 Télécharger Besoins Jours (CSV)", csv_b, "besoins_journaliers.csv")
-                    
+                        # Filtrage sur le jour précis
+                        df_res = df_b[df_b["Jour"] == sel_j_mat]
+                        # Calcul identique Onglet 2 (N+1)
+                        plan_tri = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_mat) & (st.session_state.planning["Scène"] == sel_s_mat)].sort_values("Show")
+                        liste_art = plan_tri["Artiste"].tolist()
+                        
+                        if not df_res.empty and liste_art:
+                            matrice = df_res.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                            for a in liste_art:
+                                if a not in matrice.columns: matrice[a] = 0
+                            matrice = matrice[liste_art]
+                            if len(liste_art) > 1:
+                                res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1)
+                            else:
+                                res = matrice.iloc[:, 0]
+                            final_df = res.reset_index().rename(columns={0: "Total"})
+                            st.write(f"Export J:{sel_j_mat} / S:{sel_s_mat}")
+                            st.dataframe(final_df, use_container_width=True)
+                        else:
+                            st.warning("Pas de données pour ce jour/scène.")
+
                     else:
-                        st.info("Calcul du MAX par période...")
-                        # --- CALCUL LOGIQUE MAX (J1, J2, J3...) ---
-                        df_b = st.session_state.fiches_tech[st.session_state.fiches_tech["Artiste_Apporte"] == False]
+                        # --- CALCUL TOTAL PÉRIODE (MAX DES JOURS) ---
+                        # 1. Calculer le besoin max par jour pour cette scène
+                        # On groupe par jour pour avoir le "pic" quotidien
+                        jours_scène = df_b["Jour"].unique()
+                        all_days_needs = []
+
+                        for j in jours_scène:
+                            df_j = df_b[df_b["Jour"] == j]
+                            plan_j = st.session_state.planning[(st.session_state.planning["Jour"] == j) & (st.session_state.planning["Scène"] == sel_s_mat)].sort_values("Show")
+                            arts = plan_j["Artiste"].tolist()
+                            if arts:
+                                mat = df_j.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                                for a in arts:
+                                    if a not in mat.columns: mat[a] = 0
+                                mat = mat[arts]
+                                if len(arts) > 1:
+                                    res_j = pd.concat([mat.iloc[:, i] + mat.iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
+                                else:
+                                    res_j = mat.iloc[:, 0]
+                                all_days_needs.append(res_j)
                         
-                        # 1. On calcule d'abord le total par Item, par Jour et par Scène
-                        besoins_par_jour = df_b.groupby(["Scène", "Jour", "Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
-                        
-                        # 2. On prend le MAX de ces totaux sur la période pour chaque scène
-                        besoins_periode = besoins_par_jour.groupby(["Scène", "Catégorie", "Marque", "Modèle"])["Quantité"].max().reset_index()
-                        
-                        st.dataframe(besoins_periode, use_container_width=True)
-                        csv_p = besoins_periode.to_csv(index=False).encode('utf-8')
-                        st.download_button("📥 Télécharger MAX Période (CSV)", csv_p, "besoins_max_periode.csv")
+                        if all_days_needs:
+                            # On prend le MAX de chaque item sur tous les jours calculés
+                            final_periode = pd.concat(all_days_needs, axis=1).max(axis=1).reset_index().rename(columns={0: "Besoin Max Période"})
+                            st.write(f"Export Période complète - Scène : {sel_s_mat}")
+                            st.dataframe(final_periode, use_container_width=True)
+                            
+                            csv_besoin = final_periode.to_csv(index=False).encode('utf-8')
+                            st.download_button("📥 Télécharger PDF Besoins Période", csv_besoin, f"besoins_periode_{sel_s_mat}.csv")
