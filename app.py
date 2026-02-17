@@ -21,7 +21,7 @@ if 'delete_confirm_idx' not in st.session_state:
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
 
-# --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF (CORRIGÉE POUR LES BYTES) ---
 def creer_pdf_depuis_df(titre, dataframe):
     pdf = FPDF()
     pdf.add_page()
@@ -49,7 +49,8 @@ def creer_pdf_depuis_df(titre, dataframe):
             pdf.cell(col_width, 8, str(item), border=1, align='C')
         pdf.ln()
     
-    return pdf.output()
+    # Sortie en bytes pour éviter l'erreur StreamlitAPIException
+    return bytes(pdf.output())
 
 # --- INTERFACE PRINCIPALE ---
 st.title("Nouveau Festival")
@@ -232,7 +233,6 @@ with tabs[2]:
                         pdf_b = creer_pdf_depuis_df(f"Besoins {s_s_m} - {s_j_m}", res.reset_index().rename(columns={0: "Total"}))
                         st.download_button("📥 Télécharger PDF", pdf_b, f"besoins_{s_s_m}_{s_j_m}.pdf", "application/pdf")
                 else:
-                    # Calcul MAX sur période
                     all_needs = []
                     for j in df_base["Jour"].unique():
                         df_j = df_base[df_base["Jour"] == j]
