@@ -15,6 +15,11 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
+# Variables pour gérer la confirmation de suppression sans crash
+if 'delete_confirm_idx' not in st.session_state:
+    st.session_state.delete_confirm_idx = None
+if 'delete_confirm_patch_idx' not in st.session_state:
+    st.session_state.delete_confirm_patch_idx = None
 
 # --- INTERFACE ---
 st.title("Nouveau Festival")
@@ -45,28 +50,39 @@ with tabs[0]:
                 st.rerun()
 
     st.subheader("📋 Planning Global")
-    if not st.session_state.planning.empty:
-        # Affichage du planning avec bouton de suppression par ligne pour éviter les NameError
-        df_visu = st.session_state.planning.copy()
-        df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        
-        for idx, row in df_visu.iterrows():
-            cols = st.columns([0.5, 1, 1, 2, 1, 1, 0.5])
-            cols[0].write(row["Rider"])
-            cols[1].write(row["Scène"])
-            cols[2].write(row["Jour"])
-            cols[3].write(row["Artiste"])
-            cols[4].write(row["Balance"])
-            cols[5].write(row["Show"])
-            if cols[6].button("🗑️", key=f"del_plan_{idx}"):
-                nom_art = row["Artiste"]
+    
+    # --- LOGIQUE DE CONFIRMATION (REMPLACE LA POP-UP CRASH) ---
+    if st.session_state.delete_confirm_idx is not None:
+        idx = st.session_state.delete_confirm_idx
+        with st.status("⚠️ Confirmation de suppression", expanded=True):
+            st.write(f"Supprimer définitivement l'artiste : **{st.session_state.planning.iloc[idx]['Artiste']}** ?")
+            col_cfg1, col_cfg2 = st.columns(2)
+            if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
+                nom_art = st.session_state.planning.iloc[idx]['Artiste']
                 st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
                 if nom_art in st.session_state.riders_stockage:
                     del st.session_state.riders_stockage[nom_art]
+                st.session_state.delete_confirm_idx = None
                 st.rerun()
+            if col_cfg2.button("❌ Annuler", use_container_width=True):
+                st.session_state.delete_confirm_idx = None
+                st.rerun()
+
+    if not st.session_state.planning.empty:
+        df_visu = st.session_state.planning.copy()
+        df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+        
+        # Retour du beau tableau interactif
+        ed_plan = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
+        
+        # Détection de la suppression dans le tableau
+        if st.session_state.main_editor["deleted_rows"]:
+            st.session_state.delete_confirm_idx = st.session_state.main_editor["deleted_rows"][0]
+            st.rerun()
 
     st.divider()
     st.subheader("📁 Gestion des Fichiers PDF")
+    # ... (Le reste du code reste identique pour la gestion PDF)
     if st.session_state.riders_stockage:
         keys_list = list(st.session_state.riders_stockage.keys())
         if keys_list:
@@ -124,20 +140,37 @@ with tabs[1]:
                     st.rerun()
 
             st.divider()
+            
+            # --- LOGIQUE DE CONFIRMATION PATCH ---
+            if st.session_state.delete_confirm_patch_idx is not None:
+                pidx = st.session_state.delete_confirm_patch_idx
+                with st.status("⚠️ Retirer cet item du patch ?", expanded=True):
+                    st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
+                    cp1, cp2 = st.columns(2)
+                    if cp1.button("✅ Confirmer", use_container_width=True):
+                        st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
+                        st.session_state.delete_confirm_patch_idx = None
+                        st.rerun()
+                    if cp2.button("❌ Annuler", use_container_width=True):
+                        st.session_state.delete_confirm_patch_idx = None
+                        st.rerun()
+
             col_patch, col_besoin = st.columns(2)
 
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a}")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a]
-                if not df_patch_art.empty:
-                    for idx, row in df_patch_art.iterrows():
-                        cp = st.columns([3, 1])
-                        cp[0].write(f"{row['Quantité']}x {row['Marque']} {row['Modèle']} ({row['Catégorie']})")
-                        if cp[1].button("🗑️", key=f"del_item_{idx}"):
-                            st.session_state.fiches_tech = st.session_state.fiches_tech.drop(idx).reset_index(drop=True)
-                            st.rerun()
+                # Retour du tableau interactif pour le patch
+                ed_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
+                
+                if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
+                    # On récupère l'index réel dans le dataframe global
+                    idx_to_del = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
+                    st.session_state.delete_confirm_patch_idx = idx_to_del
+                    st.rerun()
 
             with col_besoin:
+                # ... (Les calculs N+1 et l'affichage restent identiques)
                 st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
                 plan_trié = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)].sort_values("Show")
                 liste_art = plan_trié["Artiste"].tolist()
@@ -153,8 +186,6 @@ with tabs[1]:
                         res = pd.concat(gliss, axis=1).max(axis=1)
                     else:
                         res = matrice.iloc[:, 0]
-                    st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
-
-# --- ONGLET 3 : EXPORTS ---
-with tabs[2]:
-    st.write("Section Export (En attente)")
+                    st.dataframe(res.reset_index().rename(columns={0: "Total Journée"}), use_container_width=True)
+                else:
+                    st.info("Aucun besoin à afficher.")
