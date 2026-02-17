@@ -185,3 +185,64 @@ with tabs[1]:
                     st.dataframe(res_visu, use_container_width=True)
                 else:
                     st.info("Aucun besoin à afficher.")
+
+# --- AJOUTER CET IMPORT AU DÉBUT DU FICHIER ---
+# from fpdf import FPDF 
+# Note : Si FPDF n'est pas installé, Streamlit affichera une erreur. 
+# Il faudra alors ajouter 'fpdf' dans ton fichier requirements.txt ou faire pip install fpdf.
+
+# --- REMPLACEMENT DU CONTENU DE L'ONGLET 3 ---
+with tabs[2]:
+    st.header("📄 Génération des Exports PDF")
+    
+    col_exp1, col_exp2 = st.columns(2)
+
+    # --- EXPORT 1 : PLANNINGS ---
+    with col_exp1:
+        st.subheader("🗓️ Export Plannings")
+        with st.container(border=True):
+            mode_plan = st.radio("Type d'export Planning", ["Global", "Par Jour", "Par Scène"])
+            
+            if st.button("Générer PDF Planning"):
+                if st.session_state.planning.empty:
+                    st.error("Le planning est vide !")
+                else:
+                    # Simulation de création PDF (Logique simplifiée pour l'exemple)
+                    st.success(f"Préparation de l'export {mode_plan}...")
+                    
+                    # Ici on prépare le CSV en attendant la mise en place FPDF complète
+                    csv = st.session_state.planning.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Télécharger le Planning (CSV)", csv, "planning.csv", "text/csv")
+                    st.info("Note : Pour un rendu PDF stylisé avec tableaux, l'installation de 'fpdf' est requise sur ton serveur.")
+
+    # --- EXPORT 2 : BESOINS MATÉRIEL ---
+    with col_exp2:
+        st.subheader("📦 Export Besoins Matériel")
+        with st.container(border=True):
+            mode_besoin = st.radio("Période d'analyse", ["Par Jour & Par Scène", "Total Période par Scène"])
+            
+            if st.button("Générer PDF Matériel"):
+                if st.session_state.fiches_tech.empty:
+                    st.error("Aucun matériel saisi dans le patch !")
+                else:
+                    if mode_besoin == "Par Jour & Par Scène":
+                        st.info("Génération des besoins quotidiens...")
+                        # Logique identique à l'onglet 2 (Résumé direct)
+                        df_res = st.session_state.fiches_tech[st.session_state.fiches_tech["Artiste_Apporte"] == False]
+                        csv_b = df_res.to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 Télécharger Besoins Jours (CSV)", csv_b, "besoins_journaliers.csv")
+                    
+                    else:
+                        st.info("Calcul du MAX par période...")
+                        # --- CALCUL LOGIQUE MAX (J1, J2, J3...) ---
+                        df_b = st.session_state.fiches_tech[st.session_state.fiches_tech["Artiste_Apporte"] == False]
+                        
+                        # 1. On calcule d'abord le total par Item, par Jour et par Scène
+                        besoins_par_jour = df_b.groupby(["Scène", "Jour", "Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
+                        
+                        # 2. On prend le MAX de ces totaux sur la période pour chaque scène
+                        besoins_periode = besoins_par_jour.groupby(["Scène", "Catégorie", "Marque", "Modèle"])["Quantité"].max().reset_index()
+                        
+                        st.dataframe(besoins_periode, use_container_width=True)
+                        csv_p = besoins_periode.to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 Télécharger MAX Période (CSV)", csv_p, "besoins_max_periode.csv")
