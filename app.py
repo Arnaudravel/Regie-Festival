@@ -25,31 +25,31 @@ if 'riders_stockage' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- FONCTIONS POP-UP DE CONFIRMATION ---
+# --- FONCTIONS POP-UP DE CONFIRMATION (OPTION UNIQUE) ---
 
-@st.dialog("Confirmation de suppression")
+@st.dialog("Confirmer la suppression")
 def confirmer_suppression(index_to_del):
     artiste_nom = st.session_state.planning.iloc[index_to_del]["Artiste"]
-    st.warning(f"Êtes-vous sûr de vouloir supprimer le groupe **{artiste_nom}** ?")
-    col1, col2 = st.columns(2)
-    if col1.button("✅ Oui, supprimer", use_container_width=True):
+    st.write(f"Voulez-vous vraiment supprimer le groupe : **{artiste_nom}** ?")
+    st.info("Cliquez en dehors de cette fenêtre pour annuler.")
+    
+    # Un seul bouton pour valider l'action
+    if st.button("✅ OUI, Supprimer l'artiste", use_container_width=True, type="primary"):
         st.session_state.planning = st.session_state.planning.drop(index_to_del).reset_index(drop=True)
         if artiste_nom in st.session_state.riders_stockage:
             del st.session_state.riders_stockage[artiste_nom]
         st.rerun()
-    if col2.button("❌ Annuler", use_container_width=True):
-        st.rerun() # Rafraîchit pour fermer la pop-up et annuler l'action visuelle du tableau
 
-@st.dialog("Supprimer cet item ?")
+@st.dialog("Supprimer cet item")
 def confirmer_suppression_patch(index_to_del, df_source):
     item = df_source.iloc[index_to_del]
-    st.warning(f"Supprimer l'item : **{item['Modèle']}** ?")
-    col1, col2 = st.columns(2)
-    if col1.button("✅ Confirmer", use_container_width=True):
+    st.write(f"Retirer l'item : **{item['Modèle']}** du patch ?")
+    st.info("Cliquez en dehors de cette fenêtre pour annuler.")
+    
+    # Un seul bouton pour valider l'action
+    if st.button("✅ OUI, Supprimer la ligne", use_container_width=True, type="primary"):
         real_idx = df_source.index[index_to_del]
         st.session_state.fiches_tech = st.session_state.fiches_tech.drop(real_idx).reset_index(drop=True)
-        st.rerun()
-    if col2.button("❌ Annuler", use_container_width=True):
         st.rerun()
 
 # --- INTERFACE ---
@@ -143,7 +143,6 @@ with tabs[1]:
                 v_app = c_app.checkbox("Artiste Apporte")
                 
                 if st.button("Ajouter au Patch"):
-                    # Logique d'incrémentation automatique si l'item existe déjà
                     mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & \
                            (st.session_state.fiches_tech["Modèle"] == v_mod) & \
                            (st.session_state.fiches_tech["Marque"] == v_mar) & \
