@@ -15,7 +15,6 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
-# Variables pour gérer la confirmation de suppression sans crash
 if 'delete_confirm_idx' not in st.session_state:
     st.session_state.delete_confirm_idx = None
 if 'delete_confirm_patch_idx' not in st.session_state:
@@ -51,7 +50,6 @@ with tabs[0]:
 
     st.subheader("📋 Planning Global")
     
-    # --- LOGIQUE DE CONFIRMATION (REMPLACE LA POP-UP CRASH) ---
     if st.session_state.delete_confirm_idx is not None:
         idx = st.session_state.delete_confirm_idx
         with st.status("⚠️ Confirmation de suppression", expanded=True):
@@ -69,20 +67,19 @@ with tabs[0]:
                 st.rerun()
 
     if not st.session_state.planning.empty:
-        df_visu = st.session_state.planning.copy()
+        # TRI AUTOMATIQUE : Jour -> Scène -> Show
+        df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
         
-        # Retour du beau tableau interactif
         ed_plan = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
         
-        # Détection de la suppression dans le tableau
         if st.session_state.main_editor["deleted_rows"]:
-            st.session_state.delete_confirm_idx = st.session_state.main_editor["deleted_rows"][0]
+            # On récupère l'index réel du DataFrame trié pour la suppression
+            st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
 
     st.divider()
     st.subheader("📁 Gestion des Fichiers PDF")
-    # ... (Le reste du code reste identique pour la gestion PDF)
     if st.session_state.riders_stockage:
         keys_list = list(st.session_state.riders_stockage.keys())
         if keys_list:
@@ -141,10 +138,9 @@ with tabs[1]:
 
             st.divider()
             
-            # --- LOGIQUE DE CONFIRMATION PATCH ---
             if st.session_state.delete_confirm_patch_idx is not None:
                 pidx = st.session_state.delete_confirm_patch_idx
-                with st.status("⚠️ Retirer cet item du patch ?", expanded=True):
+                with st.status("⚠️ Retirer cet item ?", expanded=True):
                     st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
                     cp1, cp2 = st.columns(2)
                     if cp1.button("✅ Confirmer", use_container_width=True):
@@ -159,18 +155,16 @@ with tabs[1]:
 
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a}")
-                df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a]
-                # Retour du tableau interactif pour le patch
+                # TRI AUTOMATIQUE : Catégorie -> Marque
+                df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
                 ed_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
                 
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
-                    # On récupère l'index réel dans le dataframe global
                     idx_to_del = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                     st.session_state.delete_confirm_patch_idx = idx_to_del
                     st.rerun()
 
             with col_besoin:
-                # ... (Les calculs N+1 et l'affichage restent identiques)
                 st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
                 plan_trié = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)].sort_values("Show")
                 liste_art = plan_trié["Artiste"].tolist()
@@ -186,6 +180,8 @@ with tabs[1]:
                         res = pd.concat(gliss, axis=1).max(axis=1)
                     else:
                         res = matrice.iloc[:, 0]
-                    st.dataframe(res.reset_index().rename(columns={0: "Total Journée"}), use_container_width=True)
+                    # Tri du résultat final par catégorie pour la clarté
+                    res_visu = res.reset_index().rename(columns={0: "Total Journée"}).sort_values(by=["Catégorie", "Marque"])
+                    st.dataframe(res_visu, use_container_width=True)
                 else:
                     st.info("Aucun besoin à afficher.")
