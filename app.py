@@ -30,7 +30,7 @@ def confirmer_suppression(index_to_del):
             del st.session_state.riders_stockage[artiste_nom]
         st.rerun()
     if col2.button("❌ Annuler", use_container_width=True):
-        st.rerun() # Ferme la pop-up et réinitialise le tableau sans changement
+        st.rerun()
 
 @st.dialog("Supprimer cet item ?")
 def confirmer_suppression_patch(index_to_del, df_source):
@@ -59,10 +59,12 @@ with tabs[0]:
         ba = c4.time_input("Balance", datetime.time(14, 0))
         sh = c5.time_input("Show", datetime.time(20, 0))
         pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
+        
         if st.button("Valider Artiste"):
             if ar:
                 new_row = pd.DataFrame([{"Scène": sc, "Jour": str(jo), "Artiste": ar, "Balance": ba.strftime("%H:%M"), "Show": sh.strftime("%H:%M")}])
                 st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
+                # Initialisation dossier PDF
                 if ar not in st.session_state.riders_stockage:
                     st.session_state.riders_stockage[ar] = {}
                 if pdfs:
@@ -86,6 +88,34 @@ with tabs[0]:
                         st.session_state.planning.at[idx, col] = val
             st.rerun()
 
+    st.divider()
+    # --- RETOUR DE LA GESTION DES PDF ---
+    st.subheader("📁 Gestion des Fichiers PDF")
+    if st.session_state.riders_stockage:
+        keys_list = list(st.session_state.riders_stockage.keys())
+        if keys_list:
+            cg1, cg2 = st.columns(2)
+            with cg1:
+                choix_art_pdf = st.selectbox("Choisir Artiste pour gérer ses PDF :", keys_list)
+                fichiers = st.session_state.riders_stockage.get(choix_art_pdf, {})
+                if fichiers:
+                    for fname in list(fichiers.keys()):
+                        cf1, cf2 = st.columns([4, 1])
+                        cf1.write(f"📄 {fname}")
+                        if cf2.button("🗑️", key=f"del_pdf_{fname}"):
+                            del st.session_state.riders_stockage[choix_art_pdf][fname]
+                            st.rerun()
+                else:
+                    st.info("Aucun PDF pour cet artiste.")
+            with cg2:
+                st.write("Ajouter des fichiers pour cet artiste :")
+                nouveaux_pdf = st.file_uploader("Glisser ici", accept_multiple_files=True, key="add_pdf_extra")
+                if st.button("Enregistrer les nouveaux PDF"):
+                    if nouveaux_pdf:
+                        for f in nouveaux_pdf:
+                            st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
+                        st.rerun()
+
 # --- ONGLET 2 : PATCH & RÉGIE ---
 with tabs[1]:
     if not st.session_state.planning.empty:
@@ -102,7 +132,6 @@ with tabs[1]:
             sel_a = st.selectbox("🎸 Choisir le Groupe", arts_filtred["Artiste"].unique())
 
         if sel_a:
-            # Saisie Matériel
             st.subheader(f"📥 Saisie Matériel : {sel_a}")
             with st.container(border=True):
                 c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
@@ -113,24 +142,22 @@ with tabs[1]:
                 v_app = c_app.checkbox("Artiste Apporte")
                 
                 if st.button("Ajouter au Patch"):
-                    # LOGIQUE D'INCRÉMENTATION SI DOUBLON
+                    # Logique incrémentation
                     mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & \
                            (st.session_state.fiches_tech["Modèle"] == v_mod) & \
                            (st.session_state.fiches_tech["Marque"] == v_mar) & \
                            (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                     
                     if not st.session_state.fiches_tech[mask].empty:
-                        # On additionne la quantité à la ligne existante
                         st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                     else:
-                        # On crée une nouvelle ligne
                         new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                         st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
                     st.rerun()
 
             st.divider()
 
-            # AFFICHAGE CÔTE À CÔTE : PATCH GROUPE ET BESOIN SCÈNE
+            # AFFICHAGE CÔTE À CÔTE
             col_gauche, col_droite = st.columns(2)
 
             with col_gauche:
@@ -138,7 +165,6 @@ with tabs[1]:
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a]
                 ed_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
 
-                # Gestion suppression / modification patch
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     confirmer_suppression_patch(st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0], df_patch_art)
                 elif st.session_state[f"ed_patch_{sel_a}"]["edited_rows"]:
@@ -150,10 +176,8 @@ with tabs[1]:
 
             with col_droite:
                 st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
-                # Calcul N+N+1
                 plan_j = arts_filtred.sort_values("Show")
                 liste_a = plan_j["Artiste"].tolist()
-                
                 df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == sel_s) & 
                                                     (st.session_state.fiches_tech["Jour"] == sel_j) & 
                                                     (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
@@ -163,19 +187,17 @@ with tabs[1]:
                     for a in liste_a:
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_a]
-
                     if len(liste_a) > 1:
                         gliss = [matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_a)-1)]
                         res = pd.concat(gliss, axis=1).max(axis=1)
                     else:
                         res = matrice.iloc[:, 0]
-                    
                     df_res = res.reset_index()
                     df_res.columns = ["Catégorie", "Marque", "Modèle", "Total Journée"]
                     st.dataframe(df_res, use_container_width=True)
                 else:
-                    st.info("Aucun besoin calculé pour le moment.")
+                    st.info("Aucun besoin calculé.")
 
-# --- ONGLET 3 : EXPORTS (INCHANGÉ) ---
+# --- ONGLET 3 : EXPORTS ---
 with tabs[2]:
-    st.write("Section Export disponible une fois le patch validé.")
+    st.write("Section Export (En attente de validation du patch)")
