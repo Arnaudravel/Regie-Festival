@@ -27,10 +27,8 @@ def confirmer_suppression(index_to_del):
     
     col1, col2 = st.columns(2)
     if col1.button("✅ Oui, supprimer", use_container_width=True):
-        # Suppression effective
         nom_artiste = st.session_state.planning.iloc[index_to_del]["Artiste"]
         st.session_state.planning = st.session_state.planning.drop(index_to_del).reset_index(drop=True)
-        # Nettoyage des riders si nécessaire
         if nom_artiste in st.session_state.riders_stockage:
             del st.session_state.riders_stockage[nom_artiste]
         st.rerun()
@@ -72,46 +70,48 @@ with tabs[0]:
         ba = c4.time_input("Balance", datetime.time(14, 0))
         sh = c5.time_input("Show", datetime.time(20, 0))
         
-        # Reset automatique du PDF après ajout
         pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
         
         if st.button("Valider Artiste"):
             if ar:
+                # 1. Ajout au planning
                 new_row = pd.DataFrame([{"Scène": sc, "Jour": str(jo), "Artiste": ar, "Balance": ba.strftime("%H:%M"), "Show": sh.strftime("%H:%M")}])
                 st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
+                
+                # 2. INITIALISATION SYSTÉMATIQUE DANS LA GESTION PDF (Même si vide)
+                if ar not in st.session_state.riders_stockage:
+                    st.session_state.riders_stockage[ar] = {}
+                
+                # 3. Si des fichiers sont chargés, on les ajoute au dictionnaire de l'artiste
                 if pdfs:
-                    st.session_state.riders_stockage[ar] = {f.name: f.read() for f in pdfs}
-                st.session_state.uploader_key += 1 # Change la clé pour vider le uploader
+                    for f in pdfs:
+                        st.session_state.riders_stockage[ar][f.name] = f.read()
+                
+                st.session_state.uploader_key += 1
                 st.rerun()
 
     st.subheader("📋 Planning Global")
     if not st.session_state.planning.empty:
-        # Préparation des données pour l'éditeur
         df_visu = st.session_state.planning.copy()
+        # Le status Rider devient ✅ si le dictionnaire contient au moins un fichier
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅ PDF" if st.session_state.riders_stockage.get(x) else "❌"))
 
-        # ÉDITEUR DYNAMIQUE
         ed_plan = st.data_editor(
             df_visu, 
             use_container_width=True, 
-            num_rows="dynamic", # Permet la suppression directe
-            hide_index=False,   # Garder l'index pour la détection
+            num_rows="dynamic",
+            hide_index=False,
             key="main_editor"
         )
 
-        # LOGIQUE DE DÉTECTION (Modification ou Suppression)
         state = st.session_state.main_editor
-        
-        # 1. Détection d'une suppression (clic sur la corbeille)
         if state["deleted_rows"]:
             index_suppr = state["deleted_rows"][0]
             confirmer_suppression(index_suppr)
-
-        # 2. Détection d'une modification de cellule
         elif state["edited_rows"]:
             for idx, changes in state["edited_rows"].items():
                 for col, val in changes.items():
-                    if col != "Rider": # On ne modifie pas la colonne Rider
+                    if col != "Rider":
                         st.session_state.planning.at[idx, col] = val
             st.rerun()
 
@@ -120,23 +120,25 @@ with tabs[0]:
     if st.session_state.riders_stockage:
         col_g1, col_g2 = st.columns([2, 2])
         with col_g1:
+            # L'artiste apparaîtra ici car on a initialisé st.session_state.riders_stockage[ar]
             keys_list = list(st.session_state.riders_stockage.keys())
             if keys_list:
                 choix_art = st.selectbox("Choisir Artiste :", keys_list)
                 fichiers = st.session_state.riders_stockage.get(choix_art, {})
-                for fname in list(fichiers.keys()):
-                    cf1, cf2 = st.columns([3, 1])
-                    cf1.write(f"📄 {fname}")
-                    if cf2.button("🗑️", key=f"del_{fname}"):
-                        del st.session_state.riders_stockage[choix_art][fname]
-                        st.rerun()
+                if non_vides := list(fichiers.keys()):
+                    for fname in non_vides:
+                        cf1, cf2 = st.columns([3, 1])
+                        cf1.write(f"📄 {fname}")
+                        if cf2.button("🗑️", key=f"del_{fname}"):
+                            del st.session_state.riders_stockage[choix_art][fname]
+                            st.rerun()
+                else:
+                    st.info("Aucun PDF pour cet artiste. Vous pouvez en ajouter à droite.")
         with col_g2:
             st.write("Ajouter des PDF")
             nouveaux_pdf = st.file_uploader("Glisser ici", accept_multiple_files=True, key="add_more")
             if st.button("Sauvegarder Ajout"):
                 if nouveaux_pdf:
-                    if choix_art not in st.session_state.riders_stockage:
-                        st.session_state.riders_stockage[choix_art] = {}
                     for f in nouveaux_pdf:
                         st.session_state.riders_stockage[choix_art][f.name] = f.read()
                     st.rerun()
