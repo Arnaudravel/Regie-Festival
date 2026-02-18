@@ -397,4 +397,152 @@ with tabs[2]:
                 def calcul_pic(df_input, jour, scene):
                     # Si filtre groupe, on limite aussi le planning utilisé pour le calcul
                     if sel_grp_exp != "Tous":
-                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour)
+                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                    else:
+                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                        
+                    arts = plan["Artiste"].tolist()
+                    if not arts or df_input.empty: return pd.DataFrame()
+                    mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                    for a in arts: 
+                        if a not in mat.columns: mat[a] = 0
+                    
+                    # Si un seul artiste, pas de calcul de croisement
+                    if len(arts) > 1:
+                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
+                    else:
+                        res = mat[arts].iloc[:, 0]
+                        
+                    return res.reset_index().rename(columns={0: "Total"})
+
+                if m_bes == "Par Jour & Scène":
+                    data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
+                    if not data_pic.empty:
+                        for cat in data_pic["Catégorie"].unique():
+                            dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][["Marque", "Modèle", "Total"]]
+                else:
+                    all_days_res = []
+                    for j in df_base["Jour"].unique():
+                        res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                        if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                    
+                    if all_days_res:
+                        final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                        for cat in final["Catégorie"].unique():
+                            dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][["Marque", "Modèle", "Max_Periode"]]
+
+                # 2. --- AJOUT : Tableau "Fourni par l'artiste" ---
+                df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
+                
+                if m_bes == "Par Jour & Scène":
+                    df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
+                
+                # FILTRE GROUPE SUR APPORTE
+                if sel_grp_exp != "Tous":
+                    df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
+
+                artistes_apporte = df_apporte["Groupe"].unique()
+                
+                if len(artistes_apporte) > 0:
+                    dico_besoins[" "] = pd.DataFrame() 
+                    dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
+                    for art in artistes_apporte:
+                        items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
+                        dico_besoins[f"FOURNI PAR : {art}"] = items_art
+
+                titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
+                if sel_grp_exp != "Tous":
+                    titre_besoin += f" - {sel_grp_exp}"
+                    
+                pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
+                st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+
+# --- ONGLET 4 : ADMIN & SAUVEGARDE (AVEC PASSWORD) ---
+with tabs[3]:
+    st.header("🛠️ Administration & Sauvegarde")
+    col_adm1, col_adm2 = st.columns(2)
+    
+    with col_adm1:
+        st.subheader("🆔 Identité Festival")
+        with st.container(border=True):
+            new_name = st.text_input("Nom du Festival", st.session_state.festival_name)
+            if new_name != st.session_state.festival_name:
+                st.session_state.festival_name = new_name
+                st.rerun()
+                
+            new_logo = st.file_uploader("Logo du Festival (Image)", type=['png', 'jpg', 'jpeg'])
+            if new_logo:
+                st.session_state.festival_logo = new_logo.read()
+                st.success("Logo chargé !")
+            
+            st.info("Ces informations apparaitront sur tous les exports PDF.")
+
+        st.subheader("💾 Sauvegarde Projet")
+        with st.container(border=True):
+            st.write("Téléchargez une copie complète de votre travail pour le reprendre plus tard.")
+            data_to_save = {
+                "planning": st.session_state.planning,
+                "fiches_tech": st.session_state.fiches_tech,
+                "riders_stockage": st.session_state.riders_stockage,
+                "festival_name": st.session_state.festival_name,
+                "festival_logo": st.session_state.festival_logo,
+                "custom_catalog": st.session_state.custom_catalog
+            }
+            pickle_out = pickle.dumps(data_to_save)
+            st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
+            
+            st.divider()
+            uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
+            if uploaded_session:
+                if st.button("Restaurer la sauvegarde"):
+                    try:
+                        data_loaded = pickle.loads(uploaded_session.read())
+                        st.session_state.planning = data_loaded["planning"]
+                        st.session_state.fiches_tech = data_loaded["fiches_tech"]
+                        st.session_state.riders_stockage = data_loaded["riders_stockage"]
+                        st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
+                        st.session_state.festival_logo = data_loaded.get("festival_logo", None)
+                        st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                        st.success("Session restaurée avec succès !")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors du chargement : {e}")
+
+    with col_adm2:
+        st.subheader("📚 Catalogue Matériel (Excel)")
+        
+        # --- MODIFICATION PASSWORD ---
+        code_secret = st.text_input("🔒 Code Admin", type="password")
+        
+        if code_secret == "0000":
+            with st.container(border=True):
+                st.write("Importez votre fichier Excel. Chaque onglet = Une Catégorie. Colonnes = Marques.")
+                xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+                
+                if xls_file:
+                    if st.button("Analyser et Charger le Catalogue"):
+                        try:
+                            xls = pd.ExcelFile(xls_file)
+                            new_catalog = {}
+                            for sheet in xls.sheet_names:
+                                df = pd.read_excel(xls, sheet_name=sheet)
+                                brands = df.columns.tolist()
+                                new_catalog[sheet] = {}
+                                for brand in brands:
+                                    modeles = df[brand].dropna().astype(str).tolist()
+                                    if modeles:
+                                        new_catalog[sheet][brand] = modeles
+                            
+                            st.session_state.custom_catalog = new_catalog
+                            st.success(f"Catalogue chargé ! {len(new_catalog)} catégories trouvées.")
+                            st.json(new_catalog, expanded=False)
+                        except Exception as e:
+                            st.error(f"Erreur lecture Excel : {e}")
+                
+                if st.session_state.custom_catalog:
+                    if st.button("🗑️ Réinitialiser Catalogue par défaut"):
+                        st.session_state.custom_catalog = {}
+                        st.rerun()
+        else:
+            if code_secret:
+                st.warning("Code incorrect")
