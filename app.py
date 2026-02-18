@@ -6,7 +6,38 @@ import io
 import pickle
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="expanded")
+
+# --- BARRE LATERALE : MODE SHOW & INFOS ---
+with st.sidebar:
+    st.header("🎛️ Contrôle Régie")
+    # Toggle pour le Mode Show (Dark Mode forcé via CSS)
+    mode_show = st.toggle("🌙 Mode Show (Sombre)", value=False)
+    
+    if mode_show:
+        st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stContainer, .stButton>button, .stTextInput>div>div>input {
+            background-color: #262730;
+            color: white;
+            border-color: #4c4c52;
+        }
+        .stDataFrame {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        h1, h2, h3 {
+            color: #ffffff !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        st.success("Mode Show Actif")
+    
+    st.divider()
+    st.info("Utilisez ce panneau pour basculer l'affichage sans recharger la page.")
 
 # --- INITIALISATION DES VARIABLES DE SESSION ---
 if 'planning' not in st.session_state:
@@ -21,21 +52,19 @@ if 'delete_confirm_idx' not in st.session_state:
     st.session_state.delete_confirm_idx = None
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
-# --- NOUVELLES VARIABLES ADMIN ---
+# --- VARIABLES ADMIN ---
 if 'festival_name' not in st.session_state:
     st.session_state.festival_name = "MON FESTIVAL"
 if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
-    st.session_state.custom_catalog = {} # Structure: {Categorie: {Marque: [Modeles]}}
+    st.session_state.custom_catalog = {} 
 
-# --- FONCTION TECHNIQUE POUR LE RENDU PDF (MISE A JOUR AVEC LOGO) ---
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
     def header(self):
-        # Affichage du Logo si présent
         if st.session_state.festival_logo:
             try:
-                # On sauvegarde temporairement l'image en mémoire pour FPDF
                 import tempfile
                 import os
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
@@ -47,7 +76,6 @@ class FestivalPDF(FPDF):
                 pass
 
         self.set_font("helvetica", "B", 15)
-        # Décalage du titre si logo
         offset_x = 45 if st.session_state.festival_logo else 10
         self.set_xy(offset_x, 10)
         self.cell(0, 10, st.session_state.festival_name.upper(), ln=1)
@@ -69,13 +97,11 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
-        # En-tête
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
         self.ln()
         
-        # Lignes
         self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
@@ -103,7 +129,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF", "🛠️ Admin & Sauvegarde"])
 
-# --- ONGLET 1 : CONFIGURATION (INCHANGÉ) ---
+# --- ONGLET 1 : CONFIGURATION ---
 with tabs[0]:
     st.subheader("➕ Ajouter un Artiste")
     with st.container(border=True):
@@ -173,7 +199,7 @@ with tabs[0]:
                         for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
-# --- ONGLET 2 : PATCH & RÉGIE (CONNECTÉ A ADMIN) ---
+# --- ONGLET 2 : PATCH & RÉGIE ---
 with tabs[1]:
     if not st.session_state.planning.empty:
         f1, f2, f3 = st.columns(3)
@@ -188,17 +214,12 @@ with tabs[1]:
         if sel_a:
             st.subheader(f"📥 Saisie Matériel : {sel_a}")
             with st.container(border=True):
-                # --- LOGIQUE INTELLIGENTE ADMIN ---
-                # Si catalogue custom chargé en Onglet 4, on l'utilise, sinon valeurs par défaut
                 CATALOGUE = st.session_state.custom_catalog
-                
                 c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
                 
-                # Liste des catégories
                 liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"]
                 v_cat = c_cat.selectbox("Catégorie", liste_categories)
                 
-                # Liste des marques selon catégorie
                 liste_marques = []
                 if CATALOGUE and v_cat in CATALOGUE:
                     liste_marques = list(CATALOGUE[v_cat].keys())
@@ -207,7 +228,6 @@ with tabs[1]:
                 
                 v_mar = c_mar.selectbox("Marque", liste_marques)
                 
-                # Liste des modèles (Auto-complétion si catalogue, sinon Text Input libre)
                 v_mod = ""
                 if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
                     liste_modeles = CATALOGUE[v_cat][v_mar]
@@ -332,10 +352,9 @@ with tabs[2]:
                 pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                 st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
 
-# --- ONGLET 4 : ADMIN & SAUVEGARDE (NOUVEAU) ---
+# --- ONGLET 4 : ADMIN & SAUVEGARDE (AVEC CODE PIN) ---
 with tabs[3]:
     st.header("🛠️ Administration & Sauvegarde")
-    
     col_adm1, col_adm2 = st.columns(2)
     
     with col_adm1:
@@ -345,19 +364,15 @@ with tabs[3]:
             if new_name != st.session_state.festival_name:
                 st.session_state.festival_name = new_name
                 st.rerun()
-                
             new_logo = st.file_uploader("Logo du Festival (Image)", type=['png', 'jpg', 'jpeg'])
             if new_logo:
                 st.session_state.festival_logo = new_logo.read()
                 st.success("Logo chargé !")
-            
-            st.info("Ces informations apparaitront sur tous les exports PDF.")
+            st.info("Apparaitra sur les PDF.")
 
         st.subheader("💾 Sauvegarde Projet")
         with st.container(border=True):
-            st.write("Téléchargez une copie complète de votre travail pour le reprendre plus tard.")
-            
-            # Préparation des données à sauvegarder
+            st.write("Sauvegarder ou Restaurer une session.")
             data_to_save = {
                 "planning": st.session_state.planning,
                 "fiches_tech": st.session_state.fiches_tech,
@@ -366,56 +381,57 @@ with tabs[3]:
                 "festival_logo": st.session_state.festival_logo,
                 "custom_catalog": st.session_state.custom_catalog
             }
-            
             pickle_out = pickle.dumps(data_to_save)
-            st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
+            st.download_button("💾 Sauvegarder (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
             
             st.divider()
-            
-            uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
-            if uploaded_session:
-                if st.button("Restaurer la sauvegarde"):
-                    try:
-                        data_loaded = pickle.loads(uploaded_session.read())
-                        st.session_state.planning = data_loaded["planning"]
-                        st.session_state.fiches_tech = data_loaded["fiches_tech"]
-                        st.session_state.riders_stockage = data_loaded["riders_stockage"]
-                        st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
-                        st.session_state.festival_logo = data_loaded.get("festival_logo", None)
-                        st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
-                        st.success("Session restaurée avec succès !")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur lors du chargement : {e}")
+            uploaded_session = st.file_uploader("📂 Restaurer une sauvegarde", type=['pkl'])
+            if uploaded_session and st.button("Restaurer la sauvegarde"):
+                try:
+                    data_loaded = pickle.loads(uploaded_session.read())
+                    st.session_state.planning = data_loaded["planning"]
+                    st.session_state.fiches_tech = data_loaded["fiches_tech"]
+                    st.session_state.riders_stockage = data_loaded["riders_stockage"]
+                    st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
+                    st.session_state.festival_logo = data_loaded.get("festival_logo", None)
+                    st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                    st.success("Session restaurée !")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur : {e}")
 
     with col_adm2:
-        st.subheader("📚 Catalogue Matériel (Excel)")
+        st.subheader("📚 Catalogue Matériel (Protégé)")
         with st.container(border=True):
-            st.write("Importez votre fichier Excel. Chaque onglet = Une Catégorie. Colonnes = Marques.")
-            xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+            # --- PROTECTION PAR CODE PIN ---
+            code_secret = st.text_input("🔒 Code Admin", type="password")
             
-            if xls_file:
-                if st.button("Analyser et Charger le Catalogue"):
-                    try:
-                        xls = pd.ExcelFile(xls_file)
-                        new_catalog = {}
-                        for sheet in xls.sheet_names:
-                            df = pd.read_excel(xls, sheet_name=sheet)
-                            brands = df.columns.tolist()
-                            new_catalog[sheet] = {}
-                            for brand in brands:
-                                # On récupère les modèles en enlevant les cases vides
-                                modeles = df[brand].dropna().astype(str).tolist()
-                                if modeles:
-                                    new_catalog[sheet][brand] = modeles
-                        
-                        st.session_state.custom_catalog = new_catalog
-                        st.success(f"Catalogue chargé ! {len(new_catalog)} catégories trouvées.")
-                        st.json(new_catalog, expanded=False)
-                    except Exception as e:
-                        st.error(f"Erreur lecture Excel : {e}")
-            
-            if st.session_state.custom_catalog:
-                if st.button("🗑️ Réinitialiser Catalogue par défaut"):
-                    st.session_state.custom_catalog = {}
-                    st.rerun()
+            if code_secret == "0000":
+                st.success("Accès Autorisé")
+                st.write("Importez votre Excel (Onglet = Catégorie, Colonne = Marque).")
+                xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+                
+                if xls_file:
+                    if st.button("Analyser et Charger le Catalogue"):
+                        try:
+                            xls = pd.ExcelFile(xls_file)
+                            new_catalog = {}
+                            for sheet in xls.sheet_names:
+                                df = pd.read_excel(xls, sheet_name=sheet)
+                                brands = df.columns.tolist()
+                                new_catalog[sheet] = {}
+                                for brand in brands:
+                                    modeles = df[brand].dropna().astype(str).tolist()
+                                    if modeles:
+                                        new_catalog[sheet][brand] = modeles
+                            st.session_state.custom_catalog = new_catalog
+                            st.success(f"Catalogue chargé ! {len(new_catalog)} catégories.")
+                        except Exception as e:
+                            st.error(f"Erreur Excel : {e}")
+                
+                if st.session_state.custom_catalog:
+                    if st.button("🗑️ Réinitialiser Catalogue"):
+                        st.session_state.custom_catalog = {}
+                        st.rerun()
+            else:
+                st.warning("Veuillez entrer le code '0000' pour modifier le catalogue matériel.")
