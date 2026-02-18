@@ -21,7 +21,6 @@ if 'delete_confirm_idx' not in st.session_state:
     st.session_state.delete_confirm_idx = None
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
-# --- NOUVELLES VARIABLES ADMIN ---
 if 'festival_name' not in st.session_state:
     st.session_state.festival_name = "MON FESTIVAL"
 if 'festival_logo' not in st.session_state:
@@ -96,7 +95,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF", "🛠️ Admin & Sauvegarde"])
 
-# --- ONGLET 1 : CONFIGURATION (INCHANGÉ) ---
+# --- ONGLET 1 : CONFIGURATION (PLANNING DYNAMIQUE) ---
 with tabs[0]:
     st.subheader("➕ Ajouter un Artiste")
     with st.container(border=True):
@@ -120,7 +119,7 @@ with tabs[0]:
                 st.session_state.uploader_key += 1
                 st.rerun()
 
-    st.subheader("📋 Planning Global")
+    st.subheader("📋 Planning Global (Modifiable)")
     if st.session_state.delete_confirm_idx is not None:
         idx = st.session_state.delete_confirm_idx
         with st.status("⚠️ Confirmation de suppression", expanded=True):
@@ -137,12 +136,27 @@ with tabs[0]:
                 st.rerun()
 
     if not st.session_state.planning.empty:
+        # On prépare la vue
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        ed_plan = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
+        
+        # --- MODIF DYNAMIQUE : On récupère les modifs ---
+        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
+        
+        # Suppression via la croix
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
+            
+        # Mise à jour des données si modification (hors colonne Rider qui est calculée)
+        # On compare sans la colonne Rider
+        df_to_save = edited_df.drop(columns=["Rider"])
+        # Si on détecte une différence avec ce qu'on avait, on sauvegarde
+        # (Attention : comme df_visu est trié, on écrase le planning par la version triée, ce qui est bien)
+        if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
+             # On essaie de sauvegarder intelligemment
+             st.session_state.planning = df_to_save.reset_index(drop=True)
+             st.rerun()
 
     st.divider()
     st.subheader("📁 Gestion des Fichiers PDF")
@@ -166,7 +180,7 @@ with tabs[0]:
                         for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
-# --- ONGLET 2 : PATCH & RÉGIE (MODIFIÉ) ---
+# --- ONGLET 2 : PATCH & RÉGIE (PATCH DYNAMIQUE) ---
 with tabs[1]:
     if not st.session_state.planning.empty:
         f1, f2, f3 = st.columns(3)
@@ -185,11 +199,9 @@ with tabs[1]:
                 
                 c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
                 
-                # Liste des catégories
                 liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"]
                 v_cat = c_cat.selectbox("Catégorie", liste_categories)
                 
-                # Liste des marques
                 liste_marques = []
                 if CATALOGUE and v_cat in CATALOGUE:
                     liste_marques = list(CATALOGUE[v_cat].keys())
@@ -198,11 +210,9 @@ with tabs[1]:
                 
                 v_mar = c_mar.selectbox("Marque", liste_marques)
                 
-                # --- MODIFICATION ICI : Gestion des titres visuels ---
                 v_mod = ""
                 if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
                     raw_modeles = CATALOGUE[v_cat][v_mar]
-                    # Transformation pour l'affichage : // TITRE // devient 🔹 TITRE 🔹
                     display_modeles = [f"🔹 {str(m).replace('//','').strip()} 🔹" if str(m).startswith("//") else m for m in raw_modeles]
                     v_mod = c_mod.selectbox("Modèle", display_modeles)
                 else:
@@ -212,7 +222,6 @@ with tabs[1]:
                 v_app = c_app.checkbox("Artiste Apporte")
                 
                 if st.button("Ajouter au Patch"):
-                    # --- SECURITE : On bloque si c'est un titre ---
                     if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")):
                         st.error("⛔ Impossible d'ajouter un titre de section. Veuillez sélectionner un vrai matériel.")
                     else:
@@ -239,11 +248,21 @@ with tabs[1]:
 
             col_patch, col_besoin = st.columns(2)
             with col_patch:
-                st.subheader(f"📋 Items pour {sel_a}")
+                st.subheader(f"📋 Items pour {sel_a} (Modifiable)")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                ed_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
+                
+                # --- MODIF DYNAMIQUE : On récupère les modifs du tableau ---
+                edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}")
+                
+                # Gestion Suppression
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
+                    st.rerun()
+                
+                # Gestion Modification des valeurs (Qté, Modèle...)
+                if not edited_patch.equals(df_patch_art):
+                    # On met à jour le DataFrame principal en utilisant les index correspondants
+                    st.session_state.fiches_tech.update(edited_patch)
                     st.rerun()
 
             with col_besoin:
@@ -259,7 +278,7 @@ with tabs[1]:
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
                     st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
 
-# --- ONGLET 3 : EXPORTS PDF (INCHANGÉ) ---
+# --- ONGLET 3 : EXPORTS PDF (MODIF POUR MATERIEL ARTISTE) ---
 with tabs[2]:
     st.header("📄 Génération des Exports PDF")
     l_jours = sorted(st.session_state.planning["Jour"].unique())
@@ -296,6 +315,7 @@ with tabs[2]:
             s_j_m = st.selectbox("Jour", l_jours, key="sjm") if m_bes == "Par Jour & Scène" else None
             
             if st.button("Générer PDF Besoins", use_container_width=True):
+                # 1. Calcul des besoins (Ce que la prod doit fournir)
                 df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                 dico_besoins = {}
                 
@@ -325,11 +345,30 @@ with tabs[2]:
                         for cat in final["Catégorie"].unique():
                             dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][["Marque", "Modèle", "Max_Periode"]]
 
+                # 2. --- AJOUT : Tableau "Fourni par l'artiste" ---
+                # On filtre sur la scène
+                df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
+                
+                # Si c'est "Par Jour", on filtre aussi le jour
+                if m_bes == "Par Jour & Scène":
+                    df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
+                
+                # On liste les artistes qui amènent du matos
+                artistes_apporte = df_apporte["Groupe"].unique()
+                
+                if len(artistes_apporte) > 0:
+                    dico_besoins[" "] = pd.DataFrame() # Séparateur vide
+                    dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
+                    
+                    for art in artistes_apporte:
+                        items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
+                        dico_besoins[f"FOURNI PAR : {art}"] = items_art
+
                 titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                 pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                 st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
 
-# --- ONGLET 4 : ADMIN & SAUVEGARDE (MODIFIÉ) ---
+# --- ONGLET 4 : ADMIN & SAUVEGARDE (AVEC PASSWORD) ---
 with tabs[3]:
     st.header("🛠️ Administration & Sauvegarde")
     col_adm1, col_adm2 = st.columns(2)
@@ -382,32 +421,40 @@ with tabs[3]:
 
     with col_adm2:
         st.subheader("📚 Catalogue Matériel (Excel)")
-        with st.container(border=True):
-            st.write("Importez votre fichier Excel. Chaque onglet = Une Catégorie. Colonnes = Marques.")
-            xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
-            
-            if xls_file:
-                if st.button("Analyser et Charger le Catalogue"):
-                    try:
-                        xls = pd.ExcelFile(xls_file)
-                        new_catalog = {}
-                        for sheet in xls.sheet_names:
-                            df = pd.read_excel(xls, sheet_name=sheet)
-                            brands = df.columns.tolist()
-                            new_catalog[sheet] = {}
-                            for brand in brands:
-                                # MODIF : On garde tout (même les //) mais on enlève les cases vides
-                                modeles = df[brand].dropna().astype(str).tolist()
-                                if modeles:
-                                    new_catalog[sheet][brand] = modeles
-                        
-                        st.session_state.custom_catalog = new_catalog
-                        st.success(f"Catalogue chargé ! {len(new_catalog)} catégories trouvées.")
-                        st.json(new_catalog, expanded=False)
-                    except Exception as e:
-                        st.error(f"Erreur lecture Excel : {e}")
-            
-            if st.session_state.custom_catalog:
-                if st.button("🗑️ Réinitialiser Catalogue par défaut"):
-                    st.session_state.custom_catalog = {}
-                    st.rerun()
+        
+        # --- MODIFICATION PASSWORD ---
+        code_secret = st.text_input("🔒 Code Admin", type="password")
+        
+        if code_secret == "0000":
+            with st.container(border=True):
+                st.write("Importez votre fichier Excel. Chaque onglet = Une Catégorie. Colonnes = Marques.")
+                xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+                
+                if xls_file:
+                    if st.button("Analyser et Charger le Catalogue"):
+                        try:
+                            xls = pd.ExcelFile(xls_file)
+                            new_catalog = {}
+                            for sheet in xls.sheet_names:
+                                df = pd.read_excel(xls, sheet_name=sheet)
+                                brands = df.columns.tolist()
+                                new_catalog[sheet] = {}
+                                for brand in brands:
+                                    # MODIF : On garde tout (même les //) mais on enlève les cases vides
+                                    modeles = df[brand].dropna().astype(str).tolist()
+                                    if modeles:
+                                        new_catalog[sheet][brand] = modeles
+                            
+                            st.session_state.custom_catalog = new_catalog
+                            st.success(f"Catalogue chargé ! {len(new_catalog)} catégories trouvées.")
+                            st.json(new_catalog, expanded=False)
+                        except Exception as e:
+                            st.error(f"Erreur lecture Excel : {e}")
+                
+                if st.session_state.custom_catalog:
+                    if st.button("🗑️ Réinitialiser Catalogue par défaut"):
+                        st.session_state.custom_catalog = {}
+                        st.rerun()
+        else:
+            if code_secret:
+                st.warning("Code incorrect")
