@@ -3,9 +3,10 @@ import pandas as pd
 import datetime
 from fpdf import FPDF
 import io
+import pickle
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Regie-Festival", layout="wide")
+st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
 
 # --- INITIALISATION DES VARIABLES DE SESSION ---
 if 'planning' not in st.session_state:
@@ -20,61 +21,87 @@ if 'delete_confirm_idx' not in st.session_state:
     st.session_state.delete_confirm_idx = None
 if 'delete_confirm_patch_idx' not in st.session_state:
     st.session_state.delete_confirm_patch_idx = None
+# --- NOUVELLES VARIABLES ADMIN ---
+if 'festival_name' not in st.session_state:
+    st.session_state.festival_name = "MON FESTIVAL"
+if 'festival_logo' not in st.session_state:
+    st.session_state.festival_logo = None
+if 'custom_catalog' not in st.session_state:
+    st.session_state.custom_catalog = {} # Structure: {Categorie: {Marque: [Modeles]}}
 
-# --- FONCTION TECHNIQUE POUR LE RENDU PDF MULTI-TABLEAUX ---
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF (MISE A JOUR AVEC LOGO) ---
 class FestivalPDF(FPDF):
     def header(self):
-        self.set_font("helvetica", "B", 12)
-        self.cell(0, 10, "DOCUMENTS REGIE FESTIVAL", border=0, ln=1, align="R")
-        self.ln(5)
+        # Affichage du Logo si présent
+        if st.session_state.festival_logo:
+            try:
+                # On sauvegarde temporairement l'image en mémoire pour FPDF
+                import tempfile
+                import os
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+                    tmp_file.write(st.session_state.festival_logo)
+                    tmp_path = tmp_file.name
+                self.image(tmp_path, 10, 8, 33)
+                os.unlink(tmp_path)
+            except:
+                pass
+
+        self.set_font("helvetica", "B", 15)
+        # Décalage du titre si logo
+        offset_x = 45 if st.session_state.festival_logo else 10
+        self.set_xy(offset_x, 10)
+        self.cell(0, 10, st.session_state.festival_name.upper(), ln=1)
+        
+        self.set_font("helvetica", "I", 8)
+        self.set_xy(offset_x, 18)
+        self.cell(0, 5, f"Généré le {datetime.datetime.now().strftime('%d/%m/%Y à %H:%M')}", ln=1)
+        self.ln(10)
 
     def ajouter_titre_section(self, titre):
-        self.set_font("helvetica", "B", 14)
+        self.set_font("helvetica", "B", 12)
         self.set_fill_color(240, 240, 240)
         self.cell(0, 10, titre, ln=True, fill=True, border="B")
-        self.ln(3)
+        self.ln(2)
 
     def dessiner_tableau(self, df):
         if df.empty: return
-        self.set_font("helvetica", "B", 10)
+        self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
         # En-tête
-        self.set_fill_color(200, 220, 255)
+        self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
         self.ln()
         
         # Lignes
-        self.set_font("helvetica", "", 9)
+        self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
-            if self.get_y() > 260: self.add_page()
+            if self.get_y() > 270: self.add_page()
             for item in row:
-                self.cell(col_width, 7, str(item), border=1, align='C')
+                self.cell(col_width, 6, str(item), border=1, align='C')
             self.ln()
         self.ln(5)
 
 def generer_pdf_complet(titre_doc, dictionnaire_dfs):
-    """
-    dictionnaire_dfs format: {"Titre Section": Dataframe}
-    """
     pdf = FestivalPDF()
     pdf.add_page()
-    pdf.set_font("helvetica", "B", 20)
-    pdf.cell(0, 15, titre_doc, ln=True, align='C')
-    pdf.ln(10)
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, titre_doc, ln=True, align='C')
+    pdf.ln(5)
 
     for section, df in dictionnaire_dfs.items():
         if not df.empty:
+            if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_tableau(df)
     
     return bytes(pdf.output())
 
 # --- INTERFACE PRINCIPALE ---
-st.title("Nouveau Festival")
-tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF"])
+st.title(f"{st.session_state.festival_name} - Gestion Régie")
+tabs = st.tabs(["🏗️ Configuration", "⚙️ Patch & Régie", "📄 Exports PDF", "🛠️ Admin & Sauvegarde"])
 
 # --- ONGLET 1 : CONFIGURATION (INCHANGÉ) ---
 with tabs[0]:
@@ -146,7 +173,7 @@ with tabs[0]:
                         for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
-# --- ONGLET 2 : PATCH & RÉGIE (INCHANGÉ) ---
+# --- ONGLET 2 : PATCH & RÉGIE (CONNECTÉ A ADMIN) ---
 with tabs[1]:
     if not st.session_state.planning.empty:
         f1, f2, f3 = st.columns(3)
@@ -161,12 +188,36 @@ with tabs[1]:
         if sel_a:
             st.subheader(f"📥 Saisie Matériel : {sel_a}")
             with st.container(border=True):
+                # --- LOGIQUE INTELLIGENTE ADMIN ---
+                # Si catalogue custom chargé en Onglet 4, on l'utilise, sinon valeurs par défaut
+                CATALOGUE = st.session_state.custom_catalog
+                
                 c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
-                v_cat = c_cat.selectbox("Catégorie", ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"])
-                v_mar = c_mar.selectbox("Marque", ["SHURE", "SENNHEISER", "AKG", "NEUMANN"])
-                v_mod = c_mod.text_input("Modèle", "SM58")
+                
+                # Liste des catégories
+                liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"]
+                v_cat = c_cat.selectbox("Catégorie", liste_categories)
+                
+                # Liste des marques selon catégorie
+                liste_marques = []
+                if CATALOGUE and v_cat in CATALOGUE:
+                    liste_marques = list(CATALOGUE[v_cat].keys())
+                else:
+                    liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER"]
+                
+                v_mar = c_mar.selectbox("Marque", liste_marques)
+                
+                # Liste des modèles (Auto-complétion si catalogue, sinon Text Input libre)
+                v_mod = ""
+                if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
+                    liste_modeles = CATALOGUE[v_cat][v_mar]
+                    v_mod = c_mod.selectbox("Modèle", liste_modeles)
+                else:
+                    v_mod = c_mod.text_input("Modèle", "SM58")
+
                 v_qte = c_qte.number_input("Qté", 1, 500, 1)
                 v_app = c_app.checkbox("Artiste Apporte")
+                
                 if st.button("Ajouter au Patch"):
                     mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                     if not st.session_state.fiches_tech[mask].empty:
@@ -211,7 +262,7 @@ with tabs[1]:
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
                     st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
 
-# --- ONGLET 3 : EXPORTS PDF (STRUCTURÉS) ---
+# --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
     st.header("📄 Génération des Exports PDF")
     l_jours = sorted(st.session_state.planning["Jour"].unique())
@@ -228,8 +279,6 @@ with tabs[2]:
             if st.button("Générer PDF Planning", use_container_width=True):
                 df_p = st.session_state.planning.copy()
                 dico_sections = {}
-                
-                # Logique de segmentation
                 jours_a_traiter = [s_j_p] if m_plan == "Par Jour" else l_jours
                 scenes_a_traiter = [s_s_p] if m_plan == "Par Scène" else l_scenes
                 
@@ -253,7 +302,6 @@ with tabs[2]:
                 df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                 dico_besoins = {}
                 
-                # Fonction interne pour calculer le pic N+1
                 def calcul_pic(df_input, jour, scene):
                     plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
@@ -270,7 +318,6 @@ with tabs[2]:
                         for cat in data_pic["Catégorie"].unique():
                             dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][["Marque", "Modèle", "Total"]]
                 else:
-                    # MAX sur Période
                     all_days_res = []
                     for j in df_base["Jour"].unique():
                         res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
@@ -284,3 +331,91 @@ with tabs[2]:
                 titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                 pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                 st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+
+# --- ONGLET 4 : ADMIN & SAUVEGARDE (NOUVEAU) ---
+with tabs[3]:
+    st.header("🛠️ Administration & Sauvegarde")
+    
+    col_adm1, col_adm2 = st.columns(2)
+    
+    with col_adm1:
+        st.subheader("🆔 Identité Festival")
+        with st.container(border=True):
+            new_name = st.text_input("Nom du Festival", st.session_state.festival_name)
+            if new_name != st.session_state.festival_name:
+                st.session_state.festival_name = new_name
+                st.rerun()
+                
+            new_logo = st.file_uploader("Logo du Festival (Image)", type=['png', 'jpg', 'jpeg'])
+            if new_logo:
+                st.session_state.festival_logo = new_logo.read()
+                st.success("Logo chargé !")
+            
+            st.info("Ces informations apparaitront sur tous les exports PDF.")
+
+        st.subheader("💾 Sauvegarde Projet")
+        with st.container(border=True):
+            st.write("Téléchargez une copie complète de votre travail pour le reprendre plus tard.")
+            
+            # Préparation des données à sauvegarder
+            data_to_save = {
+                "planning": st.session_state.planning,
+                "fiches_tech": st.session_state.fiches_tech,
+                "riders_stockage": st.session_state.riders_stockage,
+                "festival_name": st.session_state.festival_name,
+                "festival_logo": st.session_state.festival_logo,
+                "custom_catalog": st.session_state.custom_catalog
+            }
+            
+            pickle_out = pickle.dumps(data_to_save)
+            st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
+            
+            st.divider()
+            
+            uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
+            if uploaded_session:
+                if st.button("Restaurer la sauvegarde"):
+                    try:
+                        data_loaded = pickle.loads(uploaded_session.read())
+                        st.session_state.planning = data_loaded["planning"]
+                        st.session_state.fiches_tech = data_loaded["fiches_tech"]
+                        st.session_state.riders_stockage = data_loaded["riders_stockage"]
+                        st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
+                        st.session_state.festival_logo = data_loaded.get("festival_logo", None)
+                        st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                        st.success("Session restaurée avec succès !")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors du chargement : {e}")
+
+    with col_adm2:
+        st.subheader("📚 Catalogue Matériel (Excel)")
+        with st.container(border=True):
+            st.write("Importez votre fichier Excel. Chaque onglet = Une Catégorie. Colonnes = Marques.")
+            xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+            
+            if xls_file:
+                if st.button("Analyser et Charger le Catalogue"):
+                    try:
+                        xls = pd.ExcelFile(xls_file)
+                        new_catalog = {}
+                        for sheet in xls.sheet_names:
+                            df = pd.read_excel(xls, sheet_name=sheet)
+                            brands = df.columns.tolist()
+                            new_catalog[sheet] = {}
+                            for brand in brands:
+                                # On récupère les modèles en enlevant les cases vides
+                                modeles = df[brand].dropna().astype(str).tolist()
+                                if modeles:
+                                    new_catalog[sheet][brand] = modeles
+                        
+                        st.session_state.custom_catalog = new_catalog
+                        st.success(f"Catalogue chargé ! {len(new_catalog)} catégories trouvées.")
+                        st.json(new_catalog, expanded=False)
+                    except Exception as e:
+                        st.error(f"Erreur lecture Excel : {e}")
+            
+            if st.session_state.custom_catalog:
+                if st.button("🗑️ Réinitialiser Catalogue par défaut"):
+                    st.session_state.custom_catalog = {}
+                    st.rerun()
