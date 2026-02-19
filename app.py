@@ -183,7 +183,6 @@ with tabs[0]:
             st.session_state.planning["Durée Balance"] = ""
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        # MODIFICATION : hide_index=True ajouté ici
         edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
@@ -278,7 +277,6 @@ with tabs[1]:
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a} (Modifiable)")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                # MODIFICATION : hide_index=True ajouté ici
                 edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
@@ -297,15 +295,11 @@ with tabs[1]:
                     for a in liste_art: 
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
-                    # --- MODIFICATION LOGIQUE POUR LE NOM DE COLONNE "TOTAL" ---
                     if len(liste_art) > 1:
                         res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1)
                     else:
                         res = matrice.iloc[:, 0]
-                    
-                    # MODIFICATION : reset_index + rename pour forcer "Total" et hide_index=True
-                    df_final_recap = res.reset_index().rename(columns={0: "Total"})
-                    st.dataframe(df_final_recap, use_container_width=True, hide_index=True)
+                    st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
@@ -350,25 +344,32 @@ with tabs[2]:
             
             if st.button("Générer PDF Besoins", use_container_width=True):
                 df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-                if sel_grp_exp != "Tous":
-                    df_base = df_base[df_base["Groupe"] == sel_grp_exp]
                 
                 dico_besoins = {}
                 def calcul_pic(df_input, jour, scene):
-                    if sel_grp_exp != "Tous":
-                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
-                    else:
-                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                    # On récupère toujours TOUS les artistes du jour/scène pour le calcul du pic régie
+                    plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
                     if not arts or df_input.empty: return pd.DataFrame()
+                    
                     mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                     for a in arts: 
                         if a not in mat.columns: mat[a] = 0
+                    
+                    # Logique de calcul du pic (Max entre groupes successifs ou groupe unique)
                     if len(arts) > 1:
-                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
+                        res_max = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
                     else:
-                        res = mat[arts].iloc[:, 0]
-                    return res.reset_index().rename(columns={0: "Total"})
+                        res_max = mat[arts].iloc[:, 0]
+                    
+                    # Si on filtre par artiste, on ne garde que ce qui concerne cet artiste MAIS avec le pic calculé
+                    df_res = res_max.reset_index().rename(columns={0: "Total"})
+                    if sel_grp_exp != "Tous":
+                        # On filtre le résultat final pour ne montrer que les modèles utilisés par cet artiste
+                        modeles_artiste = df_input[df_input["Groupe"] == sel_grp_exp]["Modèle"].unique()
+                        df_res = df_res[df_res["Modèle"].isin(modeles_artiste)]
+                    
+                    return df_res
 
                 if m_bes == "Par Jour & Scène":
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
@@ -387,11 +388,13 @@ with tabs[2]:
                             cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
+                # Gestion du matériel apporté
                 df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
                 if m_bes == "Par Jour & Scène":
                     df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
                 if sel_grp_exp != "Tous":
                     df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
+                
                 artistes_apporte = df_apporte["Groupe"].unique()
                 if len(artistes_apporte) > 0:
                     dico_besoins[" "] = pd.DataFrame() 
@@ -399,6 +402,7 @@ with tabs[2]:
                     for art in artistes_apporte:
                         items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
                         dico_besoins[f"FOURNI PAR : {art}"] = items_art
+                
                 titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                 if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
                 pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
