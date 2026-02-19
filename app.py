@@ -5,6 +5,7 @@ from fpdf import FPDF
 import io
 import pickle
 import base64
+import math
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
@@ -32,6 +33,8 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
+if 'patch_in_out' not in st.session_state:
+    st.session_state.patch_in_out = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -248,6 +251,7 @@ with main_tabs[0]:
                     "fiches_tech": st.session_state.fiches_tech,
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
+                    "patch_in_out": st.session_state.patch_in_out, # Ajout de la sauvegarde du patch
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog
@@ -264,6 +268,7 @@ with main_tabs[0]:
                             st.session_state.fiches_tech = data_loaded["fiches_tech"]
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
+                            st.session_state.patch_in_out = data_loaded.get("patch_in_out", {}) # Chargement du patch
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
@@ -539,21 +544,17 @@ with main_tabs[1]:
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
             if sel_a_p:
-                # Récupération de tous les artistes du jour sur cette scène triés par heure
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                # Fonction utilitaire pour récupérer une valeur de circuit en gérant les dictionnaires vides
                 def get_circ(art, key):
                     return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
-                # Initialisation des variables MAX
                 max_inputs = 0
                 max_ear = 0
                 max_mon_s = 0
                 max_mon_m = 0
 
-                # Calcul des MAX consécutifs
                 if len(liste_art_patch) == 1:
                     a1 = liste_art_patch[0]
                     max_inputs = get_circ(a1, "inputs")
@@ -564,7 +565,6 @@ with main_tabs[1]:
                     for i in range(len(liste_art_patch) - 1):
                         a1 = liste_art_patch[i]
                         a2 = liste_art_patch[i+1]
-                        
                         max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
                         max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
@@ -589,6 +589,92 @@ with main_tabs[1]:
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
+
+                # --- NOUVELLE SECTION : TABLEAU DE PATCH DYNAMIQUE (ETAPE 3) ---
+                st.divider()
+                inputs_groupe = get_circ(sel_a_p, "inputs")
+                
+                if inputs_groupe > 0:
+                    st.subheader("📝 Édition du tableau de Patch IN / OUT")
+                    
+                    # Choix du type de patch
+                    type_patch = st.radio("Choix du format de Patch :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                    
+                    # Génération des listes dynamiques
+                    if type_patch == "PATCH 12N":
+                        nb_departs = math.ceil(inputs_groupe / 12)
+                        liste_departs = [f"DEPART {i}" for i in range(1, nb_departs + 1)] if nb_departs > 0 else ["DEPART 1"]
+                        liste_boitiers = [f"B12M/F {i}" for i in range(1, 10)]
+                    else:
+                        nb_departs = math.ceil(inputs_groupe / 20)
+                        liste_departs = [f"DEPART {i}" for i in range(1, nb_departs + 1)] if nb_departs > 0 else ["DEPART 1"]
+                        liste_boitiers = [f"B20 {i}" for i in range(1, 10)]
+                    
+                    liste_inputs = [f"INPUT {i}" for i in range(1, inputs_groupe + 1)]
+                    
+                    # Récupération du matériel du groupe pour les listes déroulantes
+                    df_mat_groupe = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
+                    items_materiel = [""] + df_mat_groupe["Modèle"].unique().tolist() if not df_mat_groupe.empty else [""]
+
+                    # Clé unique pour sauvegarder ce patch spécifique dans la session
+                    patch_key = f"{sel_s_p}_{sel_j_p}_{sel_a_p}_{type_patch}"
+                    
+                    if patch_key not in st.session_state.patch_in_out:
+                        st.session_state.patch_in_out[patch_key] = pd.DataFrame(
+                            columns=["Départ", "Boîtier", "Position", "Input", "Micro", "Name channel", "Stand"]
+                        )
+                    
+                    df_patch = st.session_state.patch_in_out[patch_key]
+
+                    # Fonction pour coloriser les lignes selon le boîtier
+                    def style_patch_row(row):
+                        boitier = str(row.get('Boîtier', ''))
+                        couleur_fond = ''
+                        
+                        if '1' in boitier: couleur_fond = '#8B4513' # Marron
+                        elif '2' in boitier: couleur_fond = '#FF0000' # Rouge
+                        elif '3' in boitier: couleur_fond = '#FF8C00' # Orange (foncé)
+                        elif '4' in boitier: couleur_fond = '#FFD700' # Jaune
+                        elif '5' in boitier: couleur_fond = '#F4A460' # Orange (clair/sable)
+                        elif '6' in boitier: couleur_fond = '#32CD32' # Vert
+                        elif '7' in boitier: couleur_fond = '#1E90FF' # Bleu
+                        elif '8' in boitier: couleur_fond = '#800080' # Violet
+                        elif '9' in boitier: couleur_fond = '#808080' # Gris
+                        
+                        # Ajustement de la couleur du texte pour qu'il reste lisible
+                        couleur_texte = 'white' if couleur_fond in ['#8B4513', '#FF0000', '#FF8C00', '#32CD32', '#1E90FF', '#800080', '#808080'] else 'black'
+                        
+                        if couleur_fond:
+                            return [f'background-color: {couleur_fond}; color: {couleur_texte}'] * len(row)
+                        return [''] * len(row)
+
+                    # Affichage du tableau dynamique
+                    st.info("💡 **Astuce** : Modifiez la dernière ligne vide pour en créer une nouvelle automatiquement. Le tri s'effectue automatiquement en cliquant sur le nom des colonnes.")
+                    
+                    edited_patch = st.data_editor(
+                        df_patch.style.apply(style_patch_row, axis=1),
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        key=f"editor_{patch_key}",
+                        column_config={
+                            "Départ": st.column_config.SelectboxColumn("Départ", options=liste_departs, width="medium"),
+                            "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=liste_boitiers, width="medium"),
+                            "Position": st.column_config.TextColumn("Position", width="medium"),
+                            "Input": st.column_config.SelectboxColumn("Input", options=liste_inputs, width="medium"),
+                            "Micro": st.column_config.SelectboxColumn("Micro", options=items_materiel, width="medium"),
+                            "Name channel": st.column_config.TextColumn("Nom Channel", width="large"),
+                            "Stand": st.column_config.SelectboxColumn("Stand", options=items_materiel, width="medium"),
+                        }
+                    )
+
+                    # Sauvegarde automatique si modifications
+                    if not edited_patch.equals(df_patch):
+                        st.session_state.patch_in_out[patch_key] = edited_patch
+                        st.rerun()
+
+                else:
+                    st.warning("⚠️ Veuillez d'abord définir un nombre de 'Circuits d'entrées' supérieur à 0 pour ce groupe (dans la section 'Saisie du matériel').")
 
         else:
             st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
