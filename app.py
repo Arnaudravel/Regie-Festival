@@ -183,8 +183,10 @@ with tabs[0]:
             st.session_state.planning["Durée Balance"] = ""
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        # MODIF 1 : Masquage index Onglet 1
+        
+        # PROBLÈME 1 : Masquage numéro de ligne Onglet 1
         edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
+        
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
@@ -278,7 +280,10 @@ with tabs[1]:
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a} (Modifiable)")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
+                
+                # PROBLÈME 1 : Masquage numéro de ligne Onglet 2
                 edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
+                
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                     st.rerun()
@@ -297,8 +302,9 @@ with tabs[1]:
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                    # MODIF 1 & 3 : Masquage index et forçage du nom de colonne à "Total"
-                    st.dataframe(res.to_frame(name="Total").reset_index(), use_container_width=True, hide_index=True)
+                    
+                    # PROBLÈME 1 & 3 : Masquage index et correction de l'affichage de la colonne quantité
+                    st.dataframe(res.to_frame(name="Quantité").reset_index(), use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
@@ -361,22 +367,23 @@ with tabs[2]:
                         res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
                     else:
                          res = mat[arts].iloc[:, 0]
-                    # MODIF 2 : Forçage du nom de colonne pour l'export PDF
-                    return res.to_frame(name="Total").reset_index()
+                    
+                    # PROBLÈME 2 : Forçage du nom de la colonne à "Quantité" pour garantir l'export
+                    return res.to_frame(name="Quantité").reset_index()
 
                 if m_bes == "Par Jour & Scène":
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
                     if not data_pic.empty:
                         for cat in data_pic["Catégorie"].unique():
-                            cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
+                            # PROBLÈME 2 : Inclusion de la colonne "Quantité" dans le PDF
+                            cols_dispo = [c for c in ["Marque", "Modèle", "Quantité"] if c in data_pic.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
                 else:
                     all_days_res = []
                     for j in df_base["Jour"].unique():
                         res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
                         if not res_j.empty: 
-                            # On renomme temporairement pour la fusion
-                            all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]).rename(columns={"Total": "Q"}))
+                            all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]).rename(columns={"Quantité": "Q"}))
                     if all_days_res:
                         final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                         for cat in final["Catégorie"].unique():
