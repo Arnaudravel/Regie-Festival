@@ -4,6 +4,7 @@ import datetime
 from fpdf import FPDF
 import io
 import pickle
+import base64  # Nécessaire pour l'ouverture des PDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
@@ -131,7 +132,7 @@ with tabs[0]:
                 ba = None
                 st.info("Pas de balance")
         
-        with col_h_bal:
+        with col_d_bal:
             if opt_balance:
                 du = st.text_input("Durée Balance", "45 min")
             else:
@@ -225,6 +226,17 @@ with tabs[1]:
         with f3:
             artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
             sel_a = st.selectbox("🎸 Groupe", artistes)
+            
+            # --- AJOUT : VISUALISATION RIDER ---
+            if sel_a and sel_a in st.session_state.riders_stockage:
+                riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
+                if riders_groupe:
+                    sel_file = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe, key=f"view_{sel_a}")
+                    if sel_file != "-- Choisir un fichier --":
+                        pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
+                        b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
+                        pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold;">👁️ Ouvrir {sel_file}</a>'
+                        st.markdown(pdf_link, unsafe_allow_html=True)
 
         if sel_a:
             st.subheader(f"📥 Saisie Matériel : {sel_a}")
@@ -349,11 +361,10 @@ with tabs[2]:
                 def calcul_pic(df_input, jour, scene):
                     # --- CORRECTION MIROIR GROUPE SEUL ---
                     if sel_grp_exp != "Tous":
-                        # Si on a sélectionné un groupe, on affiche EXACTEMENT ce qui est saisi pour lui
                         res = df_input[df_input["Groupe"] == sel_grp_exp].groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
                         return res.rename(columns={"Quantité": "Total"})
                     
-                    # --- SINON CALCUL DU PIC REGIE (TOUS) ---
+                    # --- CALCUL DU PIC REGIE (POUR TOUS) ---
                     plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
                     if not arts or df_input.empty: return pd.DataFrame()
