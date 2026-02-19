@@ -33,8 +33,8 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
-if 'patch_in_out' not in st.session_state:
-    st.session_state.patch_in_out = {}
+if 'patch_data' not in st.session_state:
+    st.session_state.patch_data = {} # Stockage des tableaux de patch par artiste
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -48,26 +48,7 @@ if 'festival_logo' not in st.session_state:
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
 
-# --- FONCTIONS TECHNIQUES ---
-
-def get_color_code(boitier_name):
-    """Retourne le code couleur et la couleur de texte selon le numéro du boîtier."""
-    colors = {
-        "1": ("#8B4513", "white"), # Marron
-        "2": ("#FF0000", "white"), # Rouge
-        "3": ("#FF8C00", "white"), # Orange
-        "4": ("#FFD700", "black"), # Jaune
-        "5": ("#F4A460", "black"), # Sable/Orange clair
-        "6": ("#32CD32", "white"), # Vert
-        "7": ("#1E90FF", "white"), # Bleu
-        "8": ("#800080", "white"), # Violet
-        "9": ("#808080", "white"), # Gris
-    }
-    for k, v in colors.items():
-        if k in str(boitier_name):
-            return v
-    return ("#FFFFFF", "black")
-
+# --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
     def header(self):
         if st.session_state.festival_logo:
@@ -127,7 +108,6 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
 
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
-
 main_tabs = st.tabs(["Configuration", "Technique"])
 
 # ==========================================
@@ -149,12 +129,12 @@ with main_tabs[0]:
                 st.write("") 
                 opt_balance = st.checkbox("Faire une balance ?", value=True)
             with col_h_bal:
-                ba = st.time_input("Heure Balance", datetime.time(14, 0)) if opt_balance else None
+                if opt_balance: ba = st.time_input("Heure Balance", datetime.time(14, 0))
+                else: ba = None; st.info("Pas de balance")
             with col_d_bal:
                 du = st.text_input("Durée Balance", "45 min") if opt_balance else ""
 
             pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
-            
             if st.button("Valider Artiste"):
                 if ar:
                     val_ba = ba.strftime("%H:%M") if ba and opt_balance else ""
@@ -183,7 +163,7 @@ with main_tabs[0]:
             if new_logo: st.session_state.festival_logo = new_logo.read(); st.success("Logo chargé !")
             
             st.subheader("💾 Sauvegarde Projet")
-            data_to_save = {k: v for k, v in st.session_state.items() if k in ["planning", "fiches_tech", "riders_stockage", "artist_circuits", "patch_in_out", "festival_name", "festival_logo", "custom_catalog"]}
+            data_to_save = {"planning": st.session_state.planning, "fiches_tech": st.session_state.fiches_tech, "riders_stockage": st.session_state.riders_stockage, "artist_circuits": st.session_state.artist_circuits, "festival_name": st.session_state.festival_name, "festival_logo": st.session_state.festival_logo, "custom_catalog": st.session_state.custom_catalog}
             st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle.dumps(data_to_save), f"backup_festival.pkl")
             
         with col_adm2:
@@ -198,12 +178,6 @@ with main_tabs[0]:
                         st.session_state.custom_catalog = new_catalog
                         st.success("Catalogue chargé !")
                     except Exception as e: st.error(f"Erreur : {e}")
-
-    with sub_tabs_config[2]:
-        st.header("📄 Exports PDF")
-        if st.button("Générer PDF Planning"):
-            pdf_bytes = generer_pdf_complet("PLANNING GLOBAL", {"Plannings": st.session_state.planning})
-            st.download_button("📥 Télécharger", pdf_bytes, "planning.pdf")
 
 # ==========================================
 # ONGLET 2 : TECHNIQUE
@@ -240,7 +214,6 @@ with main_tabs[1]:
                     new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                     st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
                     st.rerun()
-
                 st.dataframe(st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a], use_container_width=True)
 
     with sub_tabs_tech[1]:
@@ -252,94 +225,78 @@ with main_tabs[1]:
             sel_a_p = f3p.selectbox("🎸 Groupe ", st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique(), key="a2")
 
             if sel_a_p:
-                # Calcul des Max (Etape 2)
-                plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
-                list_art = plan_patch["Artiste"].tolist()
                 def get_c(a, k): return int(st.session_state.artist_circuits.get(a, {}).get(k, 0))
                 
-                max_in = 0
-                if len(list_art) > 1:
-                    for i in range(len(list_art)-1): max_in = max(max_in, get_c(list_art[i], "inputs") + get_c(list_art[i+1], "inputs"))
-                else: max_in = get_c(sel_a_p, "inputs")
-
-                st.metric("PATCH MAX SCENE (Entrées)", max_in)
-
-                # --- ETAPE 3 : TABLEAU DE PATCH ---
+                # Visualisation des métriques (Besoins Artiste)
                 st.divider()
-                type_p = st.radio("Format :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                st.subheader(f"🎛️ Besoins pour {sel_a_p}")
+                c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+                c_m1.metric("Inputs", get_c(sel_a_p, "inputs"))
+                c_m2.metric("EAR", get_c(sel_a_p, "ear_stereo"))
+                c_m3.metric("MON S.", get_c(sel_a_p, "mon_stereo"))
+                c_m4.metric("MON M.", get_c(sel_a_p, "mon_mono"))
+
+                # CONFIGURATION DES DEPARTS
+                st.divider()
+                st.subheader("📦 Configuration du Patch")
+                type_p = st.radio("Format de boîtier :", ["12N (12 positions)", "20H (20 positions)"], horizontal=True)
                 step = 12 if "12N" in type_p else 20
-                nb_dep = math.ceil(get_c(sel_a_p, "inputs") / step) if step > 0 else 1
-                
-                l_dep = [f"DEPART {i}" for i in range(1, nb_dep + 1)]
-                l_boit = [f"{'B12' if step==12 else 'B20'} boîtier {i}" for i in range(1, 10)]
-                l_inp = [f"INPUT {i}" for i in range(1, get_c(sel_a_p, "inputs") + 1)]
-                l_mat = [""] + st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]["Modèle"].unique().tolist()
+                total_in = get_c(sel_a_p, "inputs")
+                nb_dep = math.ceil(total_in / step) if total_in > 0 else 1
 
+                # Initialisation des données de patch
                 pk = f"patch_{sel_s_p}_{sel_j_p}_{sel_a_p}"
-                if pk not in st.session_state.patch_in_out:
-                    st.session_state.patch_in_out[pk] = pd.DataFrame(columns=["Départ", "Boîtier", "Position", "Input", "Micro", "Name channel", "Stand"])
+                if pk not in st.session_state.patch_data:
+                    st.session_state.patch_data[pk] = {}
 
-                # MODE SAISIE
-                st.subheader("📝 Saisie du Patch")
-                edited = st.data_editor(st.session_state.patch_in_out[pk], num_rows="dynamic", use_container_width=True, hide_index=True,
-                    column_config={
-                        "Départ": st.column_config.SelectboxColumn(options=l_dep),
-                        "Boîtier": st.column_config.SelectboxColumn(options=l_boit),
-                        "Input": st.column_config.SelectboxColumn(options=l_inp),
-                        "Micro": st.column_config.SelectboxColumn(options=l_mat),
-                        "Stand": st.column_config.SelectboxColumn(options=l_mat),
-                    })
-                st.session_state.patch_in_out[pk] = edited
+                # Préparation des options
+                all_inputs = [f"INPUT {i}" for i in range(1, total_in + 1)]
+                matos_groupe = [""] + st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]["Modèle"].unique().tolist()
+                
+                # Calcul des entrées déjà utilisées sur TOUS les tableaux de cet artiste
+                used_inputs = []
+                for d_idx in range(1, nb_dep + 1):
+                    if d_idx in st.session_state.patch_data[pk]:
+                        used_inputs.extend(st.session_state.patch_data[pk][d_idx]["Input"].dropna().tolist())
 
-                # MODE VUE PLATEAU (HTML pour Couleurs et Fusion)
-                if not edited.empty:
-                    st.divider()
-                    st.subheader("🎨 Vue Plateau (Fusionnée et Colorée)")
+                # GENERATION DES TABLEAUX (DEPARTS)
+                for d in range(1, nb_dep + 1):
+                    st.markdown(f"#### 🏷️ DEPART {d}")
                     
-                    html_table = """
-                    <style>
-                        .patch-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; }
-                        .patch-table th { background: #333; color: white; padding: 10px; border: 1px solid #444; }
-                        .patch-table td { padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; }
-                    </style>
-                    <table class="patch-table">
-                        <thead>
-                            <tr>
-                                <th>Départ</th><th>Boîtier</th><th>Position</th><th>Input</th><th>Micro</th><th>Nom</th><th>Stand</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                    """
-                    
-                    # Logique de fusion visuelle
-                    df_html = edited.copy()
-                    prev_dep = None
-                    prev_boit = None
-                    
-                    # On compte les occurrences pour le rowspan
-                    dep_counts = df_html["Départ"].value_counts(sort=False)
-                    boit_counts = df_html.groupby(["Départ", "Boîtier"]).size()
+                    # Initialisation du tableau pour ce départ précis
+                    if d not in st.session_state.patch_data[pk]:
+                        st.session_state.patch_data[pk][d] = pd.DataFrame({
+                            "Position": [i for i in range(1, step + 1)],
+                            "Input": [None] * step,
+                            "Nom Canal": [""] * step,
+                            "Micro": ["" for _ in range(step)],
+                            "Stand": ["" for _ in range(step)]
+                        })
 
-                    for i, row in df_html.iterrows():
-                        bg, tx = get_color_code(row['Boîtier'])
-                        html_table += f"<tr style='background-color: {bg}; color: {tx};'>"
-                        
-                        # Fusion Départ
-                        if row['Départ'] != prev_dep:
-                            count = df_html[df_html['Départ'] == row['Départ']].shape[0]
-                            html_table += f"<td rowspan='{count}' style='background: #eee; color:black;'>{row['Départ']}</td>"
-                            prev_dep = row['Départ']
-                        
-                        # Fusion Boîtier (dans le départ)
-                        # Pour simplifier ici, on ne fusionne que si départ ET boîtier sont identiques
-                        boit_id = f"{row['Départ']}_{row['Boîtier']}"
-                        if boit_id != prev_boit:
-                            count_b = df_html[(df_html['Départ'] == row['Départ']) & (df_html['Boîtier'] == row['Boîtier'])].shape[0]
-                            html_table += f"<td rowspan='{count_b}' style='border-left: 3px solid black;'>{row['Boîtier']}</td>"
-                            html_table += f"<td rowspan='{count_b}'>{row['Position']}</td>"
-                            prev_boit = boit_id
-                        
-                        html_table += f"<td>{row['Input']}</td><td>{row['Micro']}</td><td>{row['Name channel']}</td><td>{row['Stand']}</td></tr>"
+                    df_current = st.session_state.patch_data[pk][d]
                     
-                    html_table += "</tbody></table>"
-                    st.markdown(html_table, unsafe_allow_html=True)
+                    # LOGIQUE DE FILTRAGE : On retire les entrées déjà utilisées AILLEURS
+                    # Mais on garde celles utilisées dans CE tableau pour ne pas casser l'affichage
+                    inputs_in_other_tables = [x for x in used_inputs if x not in df_current["Input"].tolist()]
+                    available_options = [i for i in all_inputs if i not in inputs_in_other_tables]
+
+                    # Affichage du tableau éditable
+                    edited_df = st.data_editor(
+                        df_current,
+                        key=f"editor_{pk}_{d}",
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "Position": st.column_config.NumberColumn("Pos", disabled=True, width="small"),
+                            "Input": st.column_config.SelectboxColumn("INPUT Console", options=available_options, width="medium"),
+                            "Micro": st.column_config.SelectboxColumn("Micro / DI", options=matos_groupe),
+                            "Stand": st.column_config.SelectboxColumn("Pied / Stand", options=matos_groupe),
+                            "Nom Canal": st.column_config.TextColumn("Nom Canal", placeholder="ex: KICK OUT")
+                        }
+                    )
+                    
+                    # Sauvegarde immédiate
+                    st.session_state.patch_data[pk][d] = edited_df
+
+                if total_in == 0:
+                    st.warning("⚠️ Veuillez renseigner le nombre d'entrées (Inputs) dans l'onglet 'Saisie du matériel' pour générer les tableaux.")
