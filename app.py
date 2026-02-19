@@ -48,7 +48,26 @@ if 'festival_logo' not in st.session_state:
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
 
-# --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
+# --- FONCTIONS TECHNIQUES ---
+
+def get_color_code(boitier_name):
+    """Retourne le code couleur et la couleur de texte selon le numéro du boîtier."""
+    colors = {
+        "1": ("#8B4513", "white"), # Marron
+        "2": ("#FF0000", "white"), # Rouge
+        "3": ("#FF8C00", "white"), # Orange
+        "4": ("#FFD700", "black"), # Jaune
+        "5": ("#F4A460", "black"), # Sable/Orange clair
+        "6": ("#32CD32", "white"), # Vert
+        "7": ("#1E90FF", "white"), # Bleu
+        "8": ("#800080", "white"), # Violet
+        "9": ("#808080", "white"), # Gris
+    }
+    for k, v in colors.items():
+        if k in str(boitier_name):
+            return v
+    return ("#FFFFFF", "black")
+
 class FestivalPDF(FPDF):
     def header(self):
         if st.session_state.festival_logo:
@@ -61,12 +80,10 @@ class FestivalPDF(FPDF):
                 self.image(tmp_path, 10, 8, 33)
                 os.unlink(tmp_path)
             except: pass
-
         self.set_font("helvetica", "B", 15)
         offset_x = 45 if st.session_state.festival_logo else 10
         self.set_xy(offset_x, 10)
         self.cell(0, 10, st.session_state.festival_name.upper(), ln=1)
-        
         self.set_font("helvetica", "I", 8)
         self.set_xy(offset_x, 18)
         self.cell(0, 5, f"Généré le {datetime.datetime.now().strftime('%d/%m/%Y à %H:%M')}", ln=1)
@@ -83,12 +100,10 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
-        
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
         self.ln()
-        
         self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
@@ -103,7 +118,6 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, titre_doc, ln=True, align='C')
     pdf.ln(5)
-    
     for section, df in dictionnaire_dfs.items():
         if not df.empty:
             if pdf.get_y() > 250: pdf.add_page()
@@ -114,7 +128,6 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 
-# --- CREATION DES ONGLETS PRINCIPAUX ---
 main_tabs = st.tabs(["Configuration", "Technique"])
 
 # ==========================================
@@ -123,7 +136,6 @@ main_tabs = st.tabs(["Configuration", "Technique"])
 with main_tabs[0]:
     sub_tabs_config = st.tabs(["Gestion / Planning des Artistes", "Admin & Sauvegarde", "Exports PDF"])
     
-    # --- SOUS-ONGLET 1 : GESTION / PLANNING ---
     with sub_tabs_config[0]:
         st.subheader("➕ Ajouter un Artiste")
         with st.container(border=True):
@@ -132,282 +144,66 @@ with main_tabs[0]:
             jo = c2.date_input("Date de passage", datetime.date.today())
             ar = c3.text_input("Nom Artiste")
             sh = c4.time_input("Heure du Show", datetime.time(20, 0))
-            
             col_opt, col_h_bal, col_d_bal = st.columns([1, 1, 1])
             with col_opt:
                 st.write("") 
                 opt_balance = st.checkbox("Faire une balance ?", value=True)
-            
             with col_h_bal:
-                if opt_balance:
-                    ba = st.time_input("Heure Balance", datetime.time(14, 0))
-                else:
-                    ba = None
-                    st.info("Pas de balance")
-            
+                ba = st.time_input("Heure Balance", datetime.time(14, 0)) if opt_balance else None
             with col_d_bal:
-                if opt_balance:
-                    du = st.text_input("Durée Balance", "45 min")
-                else:
-                    du = ""
+                du = st.text_input("Durée Balance", "45 min") if opt_balance else ""
 
             pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
             
             if st.button("Valider Artiste"):
                 if ar:
                     val_ba = ba.strftime("%H:%M") if ba and opt_balance else ""
-                    val_du = du if opt_balance else ""
-                    new_row = pd.DataFrame([{
-                        "Scène": sc, 
-                        "Jour": str(jo), 
-                        "Artiste": ar, 
-                        "Balance": val_ba,
-                        "Durée Balance": val_du, 
-                        "Show": sh.strftime("%H:%M")
-                    }])
-                    if "Durée Balance" not in st.session_state.planning.columns:
-                         st.session_state.planning["Durée Balance"] = ""
+                    new_row = pd.DataFrame([{"Scène": sc, "Jour": str(jo), "Artiste": ar, "Balance": val_ba, "Durée Balance": du, "Show": sh.strftime("%H:%M")}])
                     st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
-                    if ar not in st.session_state.riders_stockage:
-                        st.session_state.riders_stockage[ar] = {}
+                    if ar not in st.session_state.riders_stockage: st.session_state.riders_stockage[ar] = {}
                     if pdfs:
-                        for f in pdfs:
-                            st.session_state.riders_stockage[ar][f.name] = f.read()
+                        for f in pdfs: st.session_state.riders_stockage[ar][f.name] = f.read()
                     st.session_state.uploader_key += 1
                     st.rerun()
 
-        st.subheader("📋 Planning Global (Modifiable)")
-        if st.session_state.delete_confirm_idx is not None:
-            idx = st.session_state.delete_confirm_idx
-            with st.status("⚠️ Confirmation de suppression", expanded=True):
-                st.write(f"Supprimer définitivement l'artiste : **{st.session_state.planning.iloc[idx]['Artiste']}** ?")
-                col_cfg1, col_cfg2 = st.columns(2)
-                if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
-                    nom_art = st.session_state.planning.iloc[idx]['Artiste']
-                    st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
-                    if nom_art in st.session_state.riders_stockage: del st.session_state.riders_stockage[nom_art]
-                    st.session_state.delete_confirm_idx = None
-                    st.rerun()
-                if col_cfg2.button("❌ Annuler", use_container_width=True):
-                    st.session_state.delete_confirm_idx = None
-                    st.rerun()
-
+        st.subheader("📋 Planning Global")
         if not st.session_state.planning.empty:
-            if "Durée Balance" not in st.session_state.planning.columns:
-                st.session_state.planning["Durée Balance"] = ""
             df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
             df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
             edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
-            if st.session_state.main_editor["deleted_rows"]:
-                st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
-                st.rerun()
-            df_to_save = edited_df.drop(columns=["Rider"])
-            if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
-                 st.session_state.planning = df_to_save.reset_index(drop=True)
-                 st.rerun()
-
-        st.divider()
-        st.subheader("📁 Gestion des Fichiers PDF")
-        if st.session_state.riders_stockage:
-            keys_list = list(st.session_state.riders_stockage.keys())
-            if keys_list:
-                cg1, cg2 = st.columns(2)
-                with cg1:
-                    choix_art_pdf = st.selectbox("Choisir Artiste pour gérer ses PDF :", keys_list)
-                    fichiers = st.session_state.riders_stockage.get(choix_art_pdf, {})
-                    for fname in list(fichiers.keys()):
-                        cf1, cf2 = st.columns([4, 1])
-                        cf1.write(f"📄 {fname}")
-                        if cf2.button("🗑️", key=f"del_pdf_{fname}"):
-                            del st.session_state.riders_stockage[choix_art_pdf][fname]
-                            st.rerun()
-                with cg2:
-                    nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
-                    if st.button("Enregistrer les nouveaux PDF"):
-                        if nouveaux_pdf:
-                            for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
-                        st.rerun()
-
-    # --- SOUS-ONGLET 2 : ADMIN & SAUVEGARDE ---
+            
     with sub_tabs_config[1]:
         st.header("🛠️ Administration & Sauvegarde")
         col_adm1, col_adm2 = st.columns(2)
         with col_adm1:
             st.subheader("🆔 Identité Festival")
-            with st.container(border=True):
-                new_name = st.text_input("Nom du Festival", st.session_state.festival_name)
-                if new_name != st.session_state.festival_name:
-                    st.session_state.festival_name = new_name
-                    st.rerun()
-                new_logo = st.file_uploader("Logo du Festival (Image)", type=['png', 'jpg', 'jpeg'])
-                if new_logo:
-                    st.session_state.festival_logo = new_logo.read()
-                    st.success("Logo chargé !")
-                st.info("Ces informations apparaitront sur tous les exports PDF.")
+            new_name = st.text_input("Nom du Festival", st.session_state.festival_name)
+            if new_name != st.session_state.festival_name: st.session_state.festival_name = new_name; st.rerun()
+            new_logo = st.file_uploader("Logo du Festival (Image)", type=['png', 'jpg', 'jpeg'])
+            if new_logo: st.session_state.festival_logo = new_logo.read(); st.success("Logo chargé !")
+            
             st.subheader("💾 Sauvegarde Projet")
-            with st.container(border=True):
-                data_to_save = {
-                    "planning": st.session_state.planning,
-                    "fiches_tech": st.session_state.fiches_tech,
-                    "riders_stockage": st.session_state.riders_stockage,
-                    "artist_circuits": st.session_state.artist_circuits,
-                    "patch_in_out": st.session_state.patch_in_out, # Ajout de la sauvegarde du patch
-                    "festival_name": st.session_state.festival_name,
-                    "festival_logo": st.session_state.festival_logo,
-                    "custom_catalog": st.session_state.custom_catalog
-                }
-                pickle_out = pickle.dumps(data_to_save)
-                st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
-                st.divider()
-                uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
-                if uploaded_session:
-                    if st.button("Restaurer la sauvegarde"):
-                        try:
-                            data_loaded = pickle.loads(uploaded_session.read())
-                            st.session_state.planning = data_loaded["planning"]
-                            st.session_state.fiches_tech = data_loaded["fiches_tech"]
-                            st.session_state.riders_stockage = data_loaded["riders_stockage"]
-                            st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
-                            st.session_state.patch_in_out = data_loaded.get("patch_in_out", {}) # Chargement du patch
-                            st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
-                            st.session_state.festival_logo = data_loaded.get("festival_logo", None)
-                            st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
-                            st.success("Session restaurée avec succès !")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erreur lors du chargement : {e}")
+            data_to_save = {k: v for k, v in st.session_state.items() if k in ["planning", "fiches_tech", "riders_stockage", "artist_circuits", "patch_in_out", "festival_name", "festival_logo", "custom_catalog"]}
+            st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle.dumps(data_to_save), f"backup_festival.pkl")
+            
         with col_adm2:
             st.subheader("📚 Catalogue Matériel (Excel)")
             code_secret = st.text_input("🔒 Code Admin", type="password")
             if code_secret == "0000":
-                with st.container(border=True):
-                    xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
-                    if xls_file:
-                        if st.button("Analyser et Charger le Catalogue"):
-                            try:
-                                xls = pd.ExcelFile(xls_file)
-                                new_catalog = {}
-                                for sheet in xls.sheet_names:
-                                    df = pd.read_excel(xls, sheet_name=sheet)
-                                    brands = df.columns.tolist()
-                                    new_catalog[sheet] = {}
-                                    for brand in brands:
-                                        modeles = df[brand].dropna().astype(str).tolist()
-                                        if modeles:
-                                            new_catalog[sheet][brand] = modeles
-                                st.session_state.custom_catalog = new_catalog
-                                st.success(f"Catalogue chargé !")
-                            except Exception as e:
-                                st.error(f"Erreur lecture Excel : {e}")
-                    if st.session_state.custom_catalog:
-                        if st.button("🗑️ Réinitialiser Catalogue"):
-                            st.session_state.custom_catalog = {}
-                            st.rerun()
-            else:
-                if code_secret: st.warning("Code incorrect")
+                xls_file = st.file_uploader("Fichier Excel Items", type=['xlsx', 'xls'])
+                if xls_file and st.button("Charger le Catalogue"):
+                    try:
+                        xls = pd.ExcelFile(xls_file)
+                        new_catalog = {sheet: {brand: pd.read_excel(xls, sheet_name=sheet)[brand].dropna().astype(str).tolist() for brand in pd.read_excel(xls, sheet_name=sheet).columns} for sheet in xls.sheet_names}
+                        st.session_state.custom_catalog = new_catalog
+                        st.success("Catalogue chargé !")
+                    except Exception as e: st.error(f"Erreur : {e}")
 
-    # --- SOUS-ONGLET 3 : EXPORTS PDF ---
     with sub_tabs_config[2]:
-        st.header("📄 Génération des Exports PDF")
-        l_jours = sorted(st.session_state.planning["Jour"].unique())
-        l_scenes = sorted(st.session_state.planning["Scène"].unique())
-        cex1, cex2 = st.columns(2)
-
-        with cex1:
-            st.subheader("🗓️ Export Plannings")
-            with st.container(border=True):
-                m_plan = st.radio("Périmètre", ["Global", "Par Jour", "Par Scène"], key="mp")
-                s_j_p = st.selectbox("Jour", l_jours) if m_plan == "Par Jour" else None
-                s_s_p = st.selectbox("Scène", l_scenes) if m_plan == "Par Scène" else None
-                if st.button("Générer PDF Planning", use_container_width=True):
-                    df_p = st.session_state.planning.copy()
-                    dico_sections = {}
-                    jours_a_traiter = [s_j_p] if m_plan == "Par Jour" else l_jours
-                    scenes_a_traiter = [s_s_p] if m_plan == "Par Scène" else l_scenes
-                    for j in jours_a_traiter:
-                        for s in scenes_a_traiter:
-                            sub_df = df_p[(df_p["Jour"] == j) & (df_p["Scène"] == s)].sort_values("Show")
-                            if not sub_df.empty:
-                                cols_to_export = ["Artiste", "Balance", "Durée Balance", "Show"]
-                                if "Durée Balance" not in sub_df.columns:
-                                    cols_to_export.remove("Durée Balance")
-                                dico_sections[f"JOUR : {j} | SCENE : {s}"] = sub_df[cols_to_export]
-                    pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections)
-                    st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
-
-        with cex2:
-            st.subheader("📦 Export Besoins")
-            with st.container(border=True):
-                m_bes = st.radio("Type", ["Par Jour & Scène", "Total Période par Scène"], key="mb")
-                s_s_m = st.selectbox("Scène", l_scenes, key="ssm")
-                s_j_m = None
-                sel_grp_exp = "Tous"
-                if m_bes == "Par Jour & Scène":
-                    s_j_m = st.selectbox("Jour", l_jours, key="sjm")
-                    arts_du_jour = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_m) & (st.session_state.planning["Scène"] == s_s_m)]["Artiste"].unique()
-                    sel_grp_exp = st.selectbox("Filtrer par Groupe (Optionnel)", ["Tous"] + list(arts_du_jour))
-                
-                if st.button("Générer PDF Besoins", use_container_width=True):
-                    df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-                    if sel_grp_exp != "Tous":
-                        df_base = df_base[df_base["Groupe"] == sel_grp_exp]
-                    
-                    dico_besoins = {}
-                    
-                    # AJOUT : Circuits spécifiques si filtré par groupe
-                    if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
-                        c = st.session_state.artist_circuits[sel_grp_exp]
-                        dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
-                            "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
-                            "Quantité": [c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)]
-                        })
-
-                    def calcul_pic(df_input, jour, scene):
-                        if sel_grp_exp != "Tous":
-                            plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
-                        else:
-                            plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
-                        arts = plan["Artiste"].tolist()
-                        if not arts or df_input.empty: return pd.DataFrame()
-                        mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                        for a in arts: 
-                            if a not in mat.columns: mat[a] = 0
-                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                        return res.reset_index().rename(columns={0: "Total"})
-
-                    if m_bes == "Par Jour & Scène":
-                        data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
-                        if not data_pic.empty:
-                            for cat in data_pic["Catégorie"].unique():
-                                cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
-                                dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
-                    else:
-                        all_days_res = []
-                        for j in df_base["Jour"].unique():
-                            res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                            if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
-                        if all_days_res:
-                            final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
-                            for cat in final["Catégorie"].unique():
-                                cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
-                                dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
-
-                    df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
-                    if m_bes == "Par Jour & Scène":
-                        df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
-                    if sel_grp_exp != "Tous":
-                        df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
-                    artistes_apporte = df_apporte["Groupe"].unique()
-                    if len(artistes_apporte) > 0:
-                        dico_besoins[" "] = pd.DataFrame() 
-                        dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
-                        for art in artistes_apporte:
-                            items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
-                            dico_besoins[f"FOURNI PAR : {art}"] = items_art
-                    titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
-                    if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
-                    pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
-                    st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+        st.header("📄 Exports PDF")
+        if st.button("Générer PDF Planning"):
+            pdf_bytes = generer_pdf_complet("PLANNING GLOBAL", {"Plannings": st.session_state.planning})
+            st.download_button("📥 Télécharger", pdf_bytes, "planning.pdf")
 
 # ==========================================
 # ONGLET 2 : TECHNIQUE
@@ -415,266 +211,135 @@ with main_tabs[0]:
 with main_tabs[1]:
     sub_tabs_tech = st.tabs(["Saisie du matériel", "Patch IN / OUT"])
     
-    # --- SOUS-ONGLET 1 : SAISIE MATERIEL ---
     with sub_tabs_tech[0]:
         if not st.session_state.planning.empty:
             f1, f2, f3 = st.columns(3)
-            with f1: sel_j = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()))
-            with f2:
-                scenes = st.session_state.planning[st.session_state.planning["Jour"] == sel_j]["Scène"].unique()
-                sel_s = st.selectbox("🏗️ Scène", scenes)
-            with f3:
-                artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
-                sel_a = st.selectbox("🎸 Groupe", artistes)
-                
-                # Bloc Riders PDF
-                if sel_a and sel_a in st.session_state.riders_stockage:
-                    riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
-                    if riders_groupe:
-                        sel_file = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe, key=f"view_{sel_a}")
-                        if sel_file != "-- Choisir un fichier --":
-                            pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
-                            b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
-                            st.markdown(pdf_link, unsafe_allow_html=True)
+            with f1: sel_j = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()), key="j1")
+            with f2: sel_s = st.selectbox("🏗️ Scène", st.session_state.planning[st.session_state.planning["Jour"] == sel_j]["Scène"].unique(), key="s1")
+            with f3: sel_a = st.selectbox("🎸 Groupe", st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique(), key="a1")
 
             if sel_a:
-                # --- NOUVELLE SECTION : CIRCUITS (ETAPE 1) ---
-                st.divider()
-                st.subheader(f"⚙️ Configuration des circuits : {sel_a}")
-                if sel_a not in st.session_state.artist_circuits:
-                    st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0}
-                
-                c_circ1, c_circ2, c_circ3, c_circ4 = st.columns(4)
-                with c_circ1:
-                    st.session_state.artist_circuits[sel_a]["inputs"] = st.number_input("Circuits d'entrées", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("inputs", 0)), key=f"in_{sel_a}")
-                with c_circ2:
-                    st.session_state.artist_circuits[sel_a]["ear_stereo"] = st.number_input("EAR MONITOR // Circuits stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("ear_stereo", 0)), key=f"ear_{sel_a}")
-                with c_circ3:
-                    st.session_state.artist_circuits[sel_a]["mon_stereo"] = st.number_input("MONITOR // circuits stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_stereo", 0)), key=f"ms_{sel_a}")
-                with c_circ4:
-                    st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // circuits mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
+                st.subheader(f"⚙️ Circuits : {sel_a}")
+                if sel_a not in st.session_state.artist_circuits: st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0}
+                c_c1, c_c2, c_c3, c_c4 = st.columns(4)
+                st.session_state.artist_circuits[sel_a]["inputs"] = c_c1.number_input("Entrées", 0, 128, int(st.session_state.artist_circuits[sel_a]["inputs"]))
+                st.session_state.artist_circuits[sel_a]["ear_stereo"] = c_c2.number_input("EAR Stéréo", 0, 32, int(st.session_state.artist_circuits[sel_a]["ear_stereo"]))
+                st.session_state.artist_circuits[sel_a]["mon_stereo"] = c_c3.number_input("MON Stéréo", 0, 32, int(st.session_state.artist_circuits[sel_a]["mon_stereo"]))
+                st.session_state.artist_circuits[sel_a]["mon_mono"] = c_c4.number_input("MON Mono", 0, 32, int(st.session_state.artist_circuits[sel_a]["mon_mono"]))
 
                 st.divider()
-                st.subheader(f"📥 Saisie Matériel : {sel_a}")
-                with st.container(border=True):
-                    CATALOGUE = st.session_state.custom_catalog
-                    c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
-                    liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"]
-                    v_cat = c_cat.selectbox("Catégorie", liste_categories)
-                    liste_marques = []
-                    if CATALOGUE and v_cat in CATALOGUE:
-                        liste_marques = list(CATALOGUE[v_cat].keys())
-                    else:
-                        liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER"]
-                    v_mar = c_mar.selectbox("Marque", liste_marques)
-                    v_mod = ""
-                    if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
-                        raw_modeles = CATALOGUE[v_cat][v_mar]
-                        display_modeles = [f"🔹 {str(m).replace('//','').strip()} 🔹" if str(m).startswith("//") else m for m in raw_modeles]
-                        v_mod = c_mod.selectbox("Modèle", display_modeles)
-                    else:
-                        v_mod = c_mod.text_input("Modèle", "SM58")
-                    v_qte = c_qte.number_input("Qté", 1, 500, 1)
-                    v_app = c_app.checkbox("Artiste Apporte")
-                    if st.button("Ajouter au Patch"):
-                        if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")):
-                            st.error("⛔ Impossible d'ajouter un titre de section.")
-                        else:
-                            mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
-                            if not st.session_state.fiches_tech[mask].empty:
-                                st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
-                            else:
-                                new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
-                                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
-                            st.rerun()
+                st.subheader(f"📥 Matériel : {sel_a}")
+                CAT = st.session_state.custom_catalog
+                c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
+                v_cat = c_cat.selectbox("Catégorie", list(CAT.keys()) if CAT else ["MICROS"])
+                v_mar = c_mar.selectbox("Marque", list(CAT[v_cat].keys()) if CAT and v_cat in CAT else ["SHURE"])
+                v_mod = c_mod.selectbox("Modèle", CAT[v_cat][v_mar] if CAT and v_cat in CAT and v_mar in CAT[v_cat] else ["SM58"])
+                v_qte = c_qte.number_input("Qté", 1, 100, 1)
+                v_app = c_app.checkbox("Apporte")
+                if st.button("Ajouter"):
+                    new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
+                    st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                    st.rerun()
 
-                st.divider()
-                if st.session_state.delete_confirm_patch_idx is not None:
-                    pidx = st.session_state.delete_confirm_patch_idx
-                    with st.status("⚠️ Confirmation", expanded=True):
-                        st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
-                        if st.button("✅ Confirmer"):
-                            st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
-                            st.session_state.delete_confirm_patch_idx = None
-                            st.rerun()
-                        if st.button("❌ Annuler"):
-                            st.session_state.delete_confirm_patch_idx = None
-                        st.rerun()
+                st.dataframe(st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a], use_container_width=True)
 
-                col_patch, col_besoin = st.columns(2)
-                with col_patch:
-                    st.subheader(f"📋 Items pour {sel_a}")
-                    df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                    edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
-                    if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
-                        st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
-                        st.rerun()
-                    if not edited_patch.equals(df_patch_art):
-                        st.session_state.fiches_tech.update(edited_patch)
-                        st.rerun()
-
-                with col_besoin:
-                    st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
-                    plan_trié = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)].sort_values("Show")
-                    liste_art = plan_trié["Artiste"].tolist()
-                    df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == sel_s) & (st.session_state.fiches_tech["Jour"] == sel_j) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-                    if not df_b.empty:
-                        matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                        for a in liste_art: 
-                            if a not in matrice.columns: matrice[a] = 0
-                        matrice = matrice[liste_art]
-                        res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                        st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
-
-    # --- SOUS-ONGLET 2 : PATCH IN / OUT ---
     with sub_tabs_tech[1]:
         st.subheader("📋 Patch IN / OUT")
-        
         if not st.session_state.planning.empty:
-            # 1ère Ligne : Sélection Jour / Scène / Groupe
-            f1_p, f2_p, f3_p = st.columns(3)
-            with f1_p: 
-                sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
-            with f2_p:
-                scenes_p = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_p]["Scène"].unique()
-                sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
-            with f3_p:
-                artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
-                sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
+            f1p, f2p, f3p = st.columns(3)
+            sel_j_p = f1p.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="j2")
+            sel_s_p = f2p.selectbox("🏗️ Scène ", st.session_state.planning[st.session_state.planning["Jour"] == sel_j_p]["Scène"].unique(), key="s2")
+            sel_a_p = f3p.selectbox("🎸 Groupe ", st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique(), key="a2")
 
             if sel_a_p:
+                # Calcul des Max (Etape 2)
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
-                liste_art_patch = plan_patch["Artiste"].tolist()
-
-                def get_circ(art, key):
-                    return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
-
-                max_inputs = 0
-                max_ear = 0
-                max_mon_s = 0
-                max_mon_m = 0
-
-                if len(liste_art_patch) == 1:
-                    a1 = liste_art_patch[0]
-                    max_inputs = get_circ(a1, "inputs")
-                    max_ear = get_circ(a1, "ear_stereo")
-                    max_mon_s = get_circ(a1, "mon_stereo")
-                    max_mon_m = get_circ(a1, "mon_mono")
-                elif len(liste_art_patch) > 1:
-                    for i in range(len(liste_art_patch) - 1):
-                        a1 = liste_art_patch[i]
-                        a2 = liste_art_patch[i+1]
-                        max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
-                        max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
-                        max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
-                        max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
-
-                # 2ème Ligne : Visualisation PATCH MAX SCENE
-                st.divider()
-                st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
-                col_max1, col_max2, col_max3, col_max4 = st.columns(4)
+                list_art = plan_patch["Artiste"].tolist()
+                def get_c(a, k): return int(st.session_state.artist_circuits.get(a, {}).get(k, 0))
                 
-                with col_max1: st.metric("Max Circuits Entrées", max_inputs)
-                with col_max2: st.metric("Max EAR Stéréo", max_ear)
-                with col_max3: st.metric("Max MON Stéréo", max_mon_s)
-                with col_max4: st.metric("Max MON Mono", max_mon_m)
+                max_in = 0
+                if len(list_art) > 1:
+                    for i in range(len(list_art)-1): max_in = max(max_in, get_c(list_art[i], "inputs") + get_c(list_art[i+1], "inputs"))
+                else: max_in = get_c(sel_a_p, "inputs")
 
-                # 3ème Ligne : Besoins du groupe sélectionné
+                st.metric("PATCH MAX SCENE (Entrées)", max_in)
+
+                # --- ETAPE 3 : TABLEAU DE PATCH ---
                 st.divider()
-                st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
-                col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                type_p = st.radio("Format :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                step = 12 if "12N" in type_p else 20
+                nb_dep = math.ceil(get_c(sel_a_p, "inputs") / step) if step > 0 else 1
                 
-                with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_p, "inputs"))
-                with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
-                with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
-                with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
+                l_dep = [f"DEPART {i}" for i in range(1, nb_dep + 1)]
+                l_boit = [f"{'B12' if step==12 else 'B20'} boîtier {i}" for i in range(1, 10)]
+                l_inp = [f"INPUT {i}" for i in range(1, get_c(sel_a_p, "inputs") + 1)]
+                l_mat = [""] + st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]["Modèle"].unique().tolist()
 
-                # --- NOUVELLE SECTION : TABLEAU DE PATCH DYNAMIQUE (ETAPE 3) ---
-                st.divider()
-                inputs_groupe = get_circ(sel_a_p, "inputs")
-                
-                if inputs_groupe > 0:
-                    st.subheader("📝 Édition du tableau de Patch IN / OUT")
-                    
-                    # Choix du type de patch
-                    type_patch = st.radio("Choix du format de Patch :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
-                    
-                    # Génération des listes dynamiques
-                    if type_patch == "PATCH 12N":
-                        nb_departs = math.ceil(inputs_groupe / 12)
-                        liste_departs = [f"DEPART {i}" for i in range(1, nb_departs + 1)] if nb_departs > 0 else ["DEPART 1"]
-                        liste_boitiers = [f"B12M/F {i}" for i in range(1, 10)]
-                    else:
-                        nb_departs = math.ceil(inputs_groupe / 20)
-                        liste_departs = [f"DEPART {i}" for i in range(1, nb_departs + 1)] if nb_departs > 0 else ["DEPART 1"]
-                        liste_boitiers = [f"B20 {i}" for i in range(1, 10)]
-                    
-                    liste_inputs = [f"INPUT {i}" for i in range(1, inputs_groupe + 1)]
-                    
-                    # Récupération du matériel du groupe pour les listes déroulantes
-                    df_mat_groupe = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
-                    items_materiel = [""] + df_mat_groupe["Modèle"].unique().tolist() if not df_mat_groupe.empty else [""]
+                pk = f"patch_{sel_s_p}_{sel_j_p}_{sel_a_p}"
+                if pk not in st.session_state.patch_in_out:
+                    st.session_state.patch_in_out[pk] = pd.DataFrame(columns=["Départ", "Boîtier", "Position", "Input", "Micro", "Name channel", "Stand"])
 
-                    # Clé unique pour sauvegarder ce patch spécifique dans la session
-                    patch_key = f"{sel_s_p}_{sel_j_p}_{sel_a_p}_{type_patch}"
-                    
-                    if patch_key not in st.session_state.patch_in_out:
-                        st.session_state.patch_in_out[patch_key] = pd.DataFrame(
-                            columns=["Départ", "Boîtier", "Position", "Input", "Micro", "Name channel", "Stand"]
-                        )
-                    
-                    df_patch = st.session_state.patch_in_out[patch_key]
+                # MODE SAISIE
+                st.subheader("📝 Saisie du Patch")
+                edited = st.data_editor(st.session_state.patch_in_out[pk], num_rows="dynamic", use_container_width=True, hide_index=True,
+                    column_config={
+                        "Départ": st.column_config.SelectboxColumn(options=l_dep),
+                        "Boîtier": st.column_config.SelectboxColumn(options=l_boit),
+                        "Input": st.column_config.SelectboxColumn(options=l_inp),
+                        "Micro": st.column_config.SelectboxColumn(options=l_mat),
+                        "Stand": st.column_config.SelectboxColumn(options=l_mat),
+                    })
+                st.session_state.patch_in_out[pk] = edited
 
-                    # Fonction pour coloriser les lignes selon le boîtier
-                    def style_patch_row(row):
-                        boitier = str(row.get('Boîtier', ''))
-                        couleur_fond = ''
+                # MODE VUE PLATEAU (HTML pour Couleurs et Fusion)
+                if not edited.empty:
+                    st.divider()
+                    st.subheader("🎨 Vue Plateau (Fusionnée et Colorée)")
+                    
+                    html_table = """
+                    <style>
+                        .patch-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; }
+                        .patch-table th { background: #333; color: white; padding: 10px; border: 1px solid #444; }
+                        .patch-table td { padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; }
+                    </style>
+                    <table class="patch-table">
+                        <thead>
+                            <tr>
+                                <th>Départ</th><th>Boîtier</th><th>Position</th><th>Input</th><th>Micro</th><th>Nom</th><th>Stand</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                    """
+                    
+                    # Logique de fusion visuelle
+                    df_html = edited.copy()
+                    prev_dep = None
+                    prev_boit = None
+                    
+                    # On compte les occurrences pour le rowspan
+                    dep_counts = df_html["Départ"].value_counts(sort=False)
+                    boit_counts = df_html.groupby(["Départ", "Boîtier"]).size()
+
+                    for i, row in df_html.iterrows():
+                        bg, tx = get_color_code(row['Boîtier'])
+                        html_table += f"<tr style='background-color: {bg}; color: {tx};'>"
                         
-                        if '1' in boitier: couleur_fond = '#8B4513' # Marron
-                        elif '2' in boitier: couleur_fond = '#FF0000' # Rouge
-                        elif '3' in boitier: couleur_fond = '#FF8C00' # Orange (foncé)
-                        elif '4' in boitier: couleur_fond = '#FFD700' # Jaune
-                        elif '5' in boitier: couleur_fond = '#F4A460' # Orange (clair/sable)
-                        elif '6' in boitier: couleur_fond = '#32CD32' # Vert
-                        elif '7' in boitier: couleur_fond = '#1E90FF' # Bleu
-                        elif '8' in boitier: couleur_fond = '#800080' # Violet
-                        elif '9' in boitier: couleur_fond = '#808080' # Gris
+                        # Fusion Départ
+                        if row['Départ'] != prev_dep:
+                            count = df_html[df_html['Départ'] == row['Départ']].shape[0]
+                            html_table += f"<td rowspan='{count}' style='background: #eee; color:black;'>{row['Départ']}</td>"
+                            prev_dep = row['Départ']
                         
-                        # Ajustement de la couleur du texte pour qu'il reste lisible
-                        couleur_texte = 'white' if couleur_fond in ['#8B4513', '#FF0000', '#FF8C00', '#32CD32', '#1E90FF', '#800080', '#808080'] else 'black'
+                        # Fusion Boîtier (dans le départ)
+                        # Pour simplifier ici, on ne fusionne que si départ ET boîtier sont identiques
+                        boit_id = f"{row['Départ']}_{row['Boîtier']}"
+                        if boit_id != prev_boit:
+                            count_b = df_html[(df_html['Départ'] == row['Départ']) & (df_html['Boîtier'] == row['Boîtier'])].shape[0]
+                            html_table += f"<td rowspan='{count_b}' style='border-left: 3px solid black;'>{row['Boîtier']}</td>"
+                            html_table += f"<td rowspan='{count_b}'>{row['Position']}</td>"
+                            prev_boit = boit_id
                         
-                        if couleur_fond:
-                            return [f'background-color: {couleur_fond}; color: {couleur_texte}'] * len(row)
-                        return [''] * len(row)
-
-                    # Affichage du tableau dynamique
-                    st.info("💡 **Astuce** : Modifiez la dernière ligne vide pour en créer une nouvelle automatiquement. Le tri s'effectue automatiquement en cliquant sur le nom des colonnes.")
+                        html_table += f"<td>{row['Input']}</td><td>{row['Micro']}</td><td>{row['Name channel']}</td><td>{row['Stand']}</td></tr>"
                     
-                    edited_patch = st.data_editor(
-                        df_patch.style.apply(style_patch_row, axis=1),
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
-                        key=f"editor_{patch_key}",
-                        column_config={
-                            "Départ": st.column_config.SelectboxColumn("Départ", options=liste_departs, width="medium"),
-                            "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=liste_boitiers, width="medium"),
-                            "Position": st.column_config.TextColumn("Position", width="medium"),
-                            "Input": st.column_config.SelectboxColumn("Input", options=liste_inputs, width="medium"),
-                            "Micro": st.column_config.SelectboxColumn("Micro", options=items_materiel, width="medium"),
-                            "Name channel": st.column_config.TextColumn("Nom Channel", width="large"),
-                            "Stand": st.column_config.SelectboxColumn("Stand", options=items_materiel, width="medium"),
-                        }
-                    )
-
-                    # Sauvegarde automatique si modifications
-                    if not edited_patch.equals(df_patch):
-                        st.session_state.patch_in_out[patch_key] = edited_patch
-                        st.rerun()
-
-                else:
-                    st.warning("⚠️ Veuillez d'abord définir un nombre de 'Circuits d'entrées' supérieur à 0 pour ce groupe (dans la section 'Saisie du matériel').")
-
-        else:
-            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+                    html_table += "</tbody></table>"
+                    st.markdown(html_table, unsafe_allow_html=True)
