@@ -10,7 +10,6 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
 
 # --- AMÉLIORATION : POP-UP TIMER (JAVASCRIPT) ---
-# Déclenche une alerte navigateur toutes les 10 minutes
 st.components.v1.html(
     """
     <script>
@@ -131,7 +130,7 @@ with tabs[0]:
             else:
                 ba = None
                 st.info("Pas de balance")
-                
+        
         with col_d_bal:
             if opt_balance:
                 du = st.text_input("Durée Balance", "45 min")
@@ -184,7 +183,8 @@ with tabs[0]:
             st.session_state.planning["Durée Balance"] = ""
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
+        # MODIF 1 : Masquage index Onglet 1
+        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
@@ -236,7 +236,7 @@ with tabs[1]:
                 v_cat = c_cat.selectbox("Catégorie", liste_categories)
                 liste_marques = []
                 if CATALOGUE and v_cat in CATALOGUE:
-                    liste_marques = list(CATALOGUE[v_cat].keys())
+                     liste_marques = list(CATALOGUE[v_cat].keys())
                 else:
                     liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER"]
                 v_mar = c_mar.selectbox("Marque", liste_marques)
@@ -257,7 +257,7 @@ with tabs[1]:
                         if not st.session_state.fiches_tech[mask].empty:
                             st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                         else:
-                            new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
+                             new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                             st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
                         st.rerun()
 
@@ -278,7 +278,6 @@ with tabs[1]:
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a} (Modifiable)")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                # Masquage de l'index du tableau (demande initiale)
                 edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
@@ -298,7 +297,8 @@ with tabs[1]:
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                    st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
+                    # MODIF 1 & 3 : Masquage index et forçage du nom de colonne à "Total"
+                    st.dataframe(res.to_frame(name="Total").reset_index(), use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
@@ -349,7 +349,7 @@ with tabs[2]:
                 dico_besoins = {}
                 def calcul_pic(df_input, jour, scene):
                     if sel_grp_exp != "Tous":
-                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
                     else:
                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
@@ -360,31 +360,32 @@ with tabs[2]:
                     if len(arts) > 1:
                         res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
                     else:
-                        res = mat[arts].iloc[:, 0]
-                    return res.reset_index().rename(columns={0: "Total"})
+                         res = mat[arts].iloc[:, 0]
+                    # MODIF 2 : Forçage du nom de colonne pour l'export PDF
+                    return res.to_frame(name="Total").reset_index()
 
                 if m_bes == "Par Jour & Scène":
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
                     if not data_pic.empty:
                         for cat in data_pic["Catégorie"].unique():
-                            # --- MODIFICATION DE SECURITE POUR EVITER KEYERROR ---
                             cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
                 else:
                     all_days_res = []
                     for j in df_base["Jour"].unique():
                         res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                        if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                        if not res_j.empty: 
+                            # On renomme temporairement pour la fusion
+                            all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]).rename(columns={"Total": "Q"}))
                     if all_days_res:
                         final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                         for cat in final["Catégorie"].unique():
-                            # --- MODIFICATION DE SECURITE POUR EVITER KEYERROR ---
                             cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
                 df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
                 if m_bes == "Par Jour & Scène":
-                    df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
+                     df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
                 if sel_grp_exp != "Tous":
                     df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
                 artistes_apporte = df_apporte["Groupe"].unique()
@@ -467,7 +468,7 @@ with tabs[3]:
                         except Exception as e:
                             st.error(f"Erreur lecture Excel : {e}")
                 if st.session_state.custom_catalog:
-                    if st.button("🗑️ Réinitialiser Catalogue"):
+                     if st.button("🗑️ Réinitialiser Catalogue"):
                         st.session_state.custom_catalog = {}
                         st.rerun()
         else:
