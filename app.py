@@ -525,4 +525,70 @@ with main_tabs[1]:
     # --- SOUS-ONGLET 2 : PATCH IN / OUT ---
     with sub_tabs_tech[1]:
         st.subheader("📋 Patch IN / OUT")
-        st.info("Cette section sera bientôt disponible pour configurer vos affectations de canaux.")
+        
+        if not st.session_state.planning.empty:
+            # 1ère Ligne : Sélection Jour / Scène / Groupe
+            f1_p, f2_p, f3_p = st.columns(3)
+            with f1_p: 
+                sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
+            with f2_p:
+                scenes_p = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_p]["Scène"].unique()
+                sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
+            with f3_p:
+                artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
+                sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
+
+            if sel_a_p:
+                # Récupération de tous les artistes du jour sur cette scène triés par heure
+                plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
+                liste_art_patch = plan_patch["Artiste"].tolist()
+
+                # Fonction utilitaire pour récupérer une valeur de circuit en gérant les dictionnaires vides
+                def get_circ(art, key):
+                    return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+
+                # Initialisation des variables MAX
+                max_inputs = 0
+                max_ear = 0
+                max_mon_s = 0
+                max_mon_m = 0
+
+                # Calcul des MAX consécutifs
+                if len(liste_art_patch) == 1:
+                    a1 = liste_art_patch[0]
+                    max_inputs = get_circ(a1, "inputs")
+                    max_ear = get_circ(a1, "ear_stereo")
+                    max_mon_s = get_circ(a1, "mon_stereo")
+                    max_mon_m = get_circ(a1, "mon_mono")
+                elif len(liste_art_patch) > 1:
+                    for i in range(len(liste_art_patch) - 1):
+                        a1 = liste_art_patch[i]
+                        a2 = liste_art_patch[i+1]
+                        
+                        max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
+                        max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
+                        max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
+                        max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
+
+                # 2ème Ligne : Visualisation PATCH MAX SCENE
+                st.divider()
+                st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
+                col_max1, col_max2, col_max3, col_max4 = st.columns(4)
+                
+                with col_max1: st.metric("Max Circuits Entrées", max_inputs)
+                with col_max2: st.metric("Max EAR Stéréo", max_ear)
+                with col_max3: st.metric("Max MON Stéréo", max_mon_s)
+                with col_max4: st.metric("Max MON Mono", max_mon_m)
+
+                # 3ème Ligne : Besoins du groupe sélectionné
+                st.divider()
+                st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
+                col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                
+                with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_p, "inputs"))
+                with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
+                with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
+                with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
+
+        else:
+            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
