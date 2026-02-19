@@ -131,7 +131,7 @@ with tabs[0]:
                 ba = None
                 st.info("Pas de balance")
         
-        with col_d_bal:
+        with col_h_bal:
             if opt_balance:
                 du = st.text_input("Durée Balance", "45 min")
             else:
@@ -347,7 +347,13 @@ with tabs[2]:
                 
                 dico_besoins = {}
                 def calcul_pic(df_input, jour, scene):
-                    # On récupère toujours TOUS les artistes du jour/scène pour le calcul du pic régie
+                    # --- CORRECTION MIROIR GROUPE SEUL ---
+                    if sel_grp_exp != "Tous":
+                        # Si on a sélectionné un groupe, on affiche EXACTEMENT ce qui est saisi pour lui
+                        res = df_input[df_input["Groupe"] == sel_grp_exp].groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
+                        return res.rename(columns={"Quantité": "Total"})
+                    
+                    # --- SINON CALCUL DU PIC REGIE (TOUS) ---
                     plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
                     if not arts or df_input.empty: return pd.DataFrame()
@@ -356,20 +362,12 @@ with tabs[2]:
                     for a in arts: 
                         if a not in mat.columns: mat[a] = 0
                     
-                    # Logique de calcul du pic (Max entre groupes successifs ou groupe unique)
                     if len(arts) > 1:
                         res_max = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
                     else:
                         res_max = mat[arts].iloc[:, 0]
                     
-                    # Si on filtre par artiste, on ne garde que ce qui concerne cet artiste MAIS avec le pic calculé
-                    df_res = res_max.reset_index().rename(columns={0: "Total"})
-                    if sel_grp_exp != "Tous":
-                        # On filtre le résultat final pour ne montrer que les modèles utilisés par cet artiste
-                        modeles_artiste = df_input[df_input["Groupe"] == sel_grp_exp]["Modèle"].unique()
-                        df_res = df_res[df_res["Modèle"].isin(modeles_artiste)]
-                    
-                    return df_res
+                    return res_max.reset_index().rename(columns={0: "Total"})
 
                 if m_bes == "Par Jour & Scène":
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
@@ -388,13 +386,11 @@ with tabs[2]:
                             cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
-                # Gestion du matériel apporté
                 df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
                 if m_bes == "Par Jour & Scène":
                     df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
                 if sel_grp_exp != "Tous":
                     df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
-                
                 artistes_apporte = df_apporte["Groupe"].unique()
                 if len(artistes_apporte) > 0:
                     dico_besoins[" "] = pd.DataFrame() 
@@ -402,7 +398,6 @@ with tabs[2]:
                     for art in artistes_apporte:
                         items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
                         dico_besoins[f"FOURNI PAR : {art}"] = items_art
-                
                 titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                 if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
                 pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
