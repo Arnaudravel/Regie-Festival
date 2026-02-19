@@ -4,7 +4,7 @@ import datetime
 from fpdf import FPDF
 import io
 import pickle
-import base64  # Nécessaire pour l'ouverture des PDF
+import base64  # AJOUTÉ : Nécessaire pour l'ouverture des PDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
@@ -227,7 +227,7 @@ with tabs[1]:
             artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
             sel_a = st.selectbox("🎸 Groupe", artistes)
             
-            # --- AJOUT : VISUALISATION RIDER ---
+            # --- MODIFICATION DEMANDÉE : OUVERTURE RIDER ---
             if sel_a and sel_a in st.session_state.riders_stockage:
                 riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
                 if riders_groupe:
@@ -235,7 +235,8 @@ with tabs[1]:
                     if sel_file != "-- Choisir un fichier --":
                         pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
                         b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                        pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold;">👁️ Ouvrir {sel_file}</a>'
+                        # On utilise target="_blank" pour ouvrir, et download pour forcer si le navigateur bloque l'ouverture directe
+                        pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
                         st.markdown(pdf_link, unsafe_allow_html=True)
 
         if sel_a:
@@ -307,10 +308,7 @@ with tabs[1]:
                     for a in liste_art: 
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
-                    if len(liste_art) > 1:
-                        res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1)
-                    else:
-                        res = matrice.iloc[:, 0]
+                    res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
                     st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
@@ -356,29 +354,22 @@ with tabs[2]:
             
             if st.button("Générer PDF Besoins", use_container_width=True):
                 df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                if sel_grp_exp != "Tous":
+                    df_base = df_base[df_base["Groupe"] == sel_grp_exp]
                 
                 dico_besoins = {}
                 def calcul_pic(df_input, jour, scene):
-                    # --- CORRECTION MIROIR GROUPE SEUL ---
                     if sel_grp_exp != "Tous":
-                        res = df_input[df_input["Groupe"] == sel_grp_exp].groupby(["Catégorie", "Marque", "Modèle"])["Quantité"].sum().reset_index()
-                        return res.rename(columns={"Quantité": "Total"})
-                    
-                    # --- CALCUL DU PIC REGIE (POUR TOUS) ---
-                    plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                    else:
+                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
                     if not arts or df_input.empty: return pd.DataFrame()
-                    
                     mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                     for a in arts: 
                         if a not in mat.columns: mat[a] = 0
-                    
-                    if len(arts) > 1:
-                        res_max = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1)
-                    else:
-                        res_max = mat[arts].iloc[:, 0]
-                    
-                    return res_max.reset_index().rename(columns={0: "Total"})
+                    res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                    return res.reset_index().rename(columns={0: "Total"})
 
                 if m_bes == "Par Jour & Scène":
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
