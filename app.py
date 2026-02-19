@@ -10,7 +10,6 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
 
 # --- AMÉLIORATION : POP-UP TIMER (JAVASCRIPT) ---
-# Déclenche une alerte navigateur toutes les 10 minutes
 st.components.v1.html(
     """
     <script>
@@ -131,7 +130,7 @@ with tabs[0]:
             else:
                 ba = None
                 st.info("Pas de balance")
-                
+        
         with col_d_bal:
             if opt_balance:
                 du = st.text_input("Durée Balance", "45 min")
@@ -184,7 +183,8 @@ with tabs[0]:
             st.session_state.planning["Durée Balance"] = ""
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor")
+        # MODIFICATION : hide_index=True ajouté ici
+        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
             st.rerun()
@@ -278,7 +278,7 @@ with tabs[1]:
             with col_patch:
                 st.subheader(f"📋 Items pour {sel_a} (Modifiable)")
                 df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                # Masquage de l'index du tableau (demande initiale)
+                # MODIFICATION : hide_index=True ajouté ici
                 edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
                 if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                     st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
@@ -297,8 +297,15 @@ with tabs[1]:
                     for a in liste_art: 
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
-                    res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                    st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True)
+                    # --- MODIFICATION LOGIQUE POUR LE NOM DE COLONNE "TOTAL" ---
+                    if len(liste_art) > 1:
+                        res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1)
+                    else:
+                        res = matrice.iloc[:, 0]
+                    
+                    # MODIFICATION : reset_index + rename pour forcer "Total" et hide_index=True
+                    df_final_recap = res.reset_index().rename(columns={0: "Total"})
+                    st.dataframe(df_final_recap, use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
 with tabs[2]:
@@ -349,7 +356,7 @@ with tabs[2]:
                 dico_besoins = {}
                 def calcul_pic(df_input, jour, scene):
                     if sel_grp_exp != "Tous":
-                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                        plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
                     else:
                         plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
                     arts = plan["Artiste"].tolist()
@@ -367,7 +374,6 @@ with tabs[2]:
                     data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
                     if not data_pic.empty:
                         for cat in data_pic["Catégorie"].unique():
-                            # --- MODIFICATION DE SECURITE POUR EVITER KEYERROR ---
                             cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
                 else:
@@ -378,7 +384,6 @@ with tabs[2]:
                     if all_days_res:
                         final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                         for cat in final["Catégorie"].unique():
-                            # --- MODIFICATION DE SECURITE POUR EVITER KEYERROR ---
                             cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
                             dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
