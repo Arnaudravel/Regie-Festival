@@ -4,7 +4,7 @@ import datetime
 from fpdf import FPDF
 import io
 import pickle
-import base64  # AJOUTÉ : Nécessaire pour l'ouverture des PDF
+import base64  # AJOUTÉ pour la gestion des PDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
@@ -184,6 +184,7 @@ with tabs[0]:
             st.session_state.planning["Durée Balance"] = ""
         df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
         df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+        # Masquage de l'index ici aussi pour la cohérence
         edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
         if st.session_state.main_editor["deleted_rows"]:
             st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
@@ -227,7 +228,7 @@ with tabs[1]:
             artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
             sel_a = st.selectbox("🎸 Groupe", artistes)
             
-            # --- MODIFICATION DEMANDÉE : OUVERTURE RIDER ---
+            # --- BLOC AJOUTÉ : OUVERTURE DES RIDERS ---
             if sel_a and sel_a in st.session_state.riders_stockage:
                 riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
                 if riders_groupe:
@@ -235,7 +236,7 @@ with tabs[1]:
                     if sel_file != "-- Choisir un fichier --":
                         pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
                         b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                        # On utilise target="_blank" pour ouvrir, et download pour forcer si le navigateur bloque l'ouverture directe
+                        # Utilisation du lien avec download + target="_blank"
                         pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
                         st.markdown(pdf_link, unsafe_allow_html=True)
 
@@ -309,6 +310,7 @@ with tabs[1]:
                         if a not in matrice.columns: matrice[a] = 0
                     matrice = matrice[liste_art]
                     res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
+                    # AJOUT de hide_index=True pour masquer les numéros de ligne
                     st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
 
 # --- ONGLET 3 : EXPORTS PDF ---
