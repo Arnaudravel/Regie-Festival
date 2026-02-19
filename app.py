@@ -29,7 +29,7 @@ if 'planning' not in st.session_state:
 if 'fiches_tech' not in st.session_state:
     st.session_state.fiches_tech = pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Catégorie", "Marque", "Modèle", "Quantité", "Artiste_Apporte"])
 if 'infos_techniques' not in st.session_state:
-    st.session_state.infos_techniques = {} 
+    st.session_state.infos_techniques = {} # {Artiste: {entrees: "", ear: "", stereo: "", mono: ""}}
 if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'uploader_key' not in st.session_state:
@@ -44,6 +44,12 @@ if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
+
+# --- FONCTION DE NETTOYAGE POUR PDF (FIX ERREUR ENCODAGE) ---
+def clean_pdf_text(text):
+    """Supprime les emojis et caractères spéciaux non supportés par FPDF latin-1"""
+    if not isinstance(text, str): text = str(text)
+    return text.encode('latin-1', 'replace').decode('latin-1').replace('?', '')
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -62,7 +68,7 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "B", 15)
         offset_x = 45 if st.session_state.festival_logo else 10
         self.set_xy(offset_x, 10)
-        self.cell(0, 10, st.session_state.festival_name.upper(), ln=1)
+        self.cell(0, 10, clean_pdf_text(st.session_state.festival_name.upper()), ln=1)
         
         self.set_font("helvetica", "I", 8)
         self.set_xy(offset_x, 18)
@@ -72,7 +78,7 @@ class FestivalPDF(FPDF):
     def ajouter_titre_section(self, titre):
         self.set_font("helvetica", "B", 12)
         self.set_fill_color(240, 240, 240)
-        self.cell(0, 10, titre, ln=True, fill=True, border="B")
+        self.cell(0, 10, clean_pdf_text(titre), ln=True, fill=True, border="B")
         self.ln(2)
 
     def dessiner_tableau(self, df):
@@ -83,14 +89,14 @@ class FestivalPDF(FPDF):
         
         self.set_fill_color(220, 230, 255)
         for col in cols:
-            self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
+            self.cell(col_width, 8, clean_pdf_text(col), border=1, fill=True, align='C')
         self.ln()
         
         self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
             for item in row:
-                self.cell(col_width, 6, str(item), border=1, align='C')
+                self.cell(col_width, 6, clean_pdf_text(item), border=1, align='C')
             self.ln()
         self.ln(5)
 
@@ -98,7 +104,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
     pdf = FestivalPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, titre_doc, ln=True, align='C')
+    pdf.cell(0, 10, clean_pdf_text(titre_doc), ln=True, align='C')
     pdf.ln(5)
     
     for section, df in dictionnaire_dfs.items():
@@ -110,7 +116,6 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
 
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
-
 main_tabs = st.tabs(["Configuration", "Technique"])
 
 # ==========================================
@@ -119,7 +124,6 @@ main_tabs = st.tabs(["Configuration", "Technique"])
 with main_tabs[0]:
     sub_tabs_config = st.tabs(["Gestion / Planning des Artistes", "Admin & Sauvegarde", "Exports PDF"])
     
-    # --- SOUS-ONGLET 1 : GESTION / PLANNING ---
     with sub_tabs_config[0]:
         st.subheader("➕ Ajouter un Artiste")
         with st.container(border=True):
@@ -217,7 +221,6 @@ with main_tabs[0]:
                             for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
-    # --- SOUS-ONGLET 2 : ADMIN & SAUVEGARDE ---
     with sub_tabs_config[1]:
         st.header("🛠️ Administration & Sauvegarde")
         col_adm1, col_adm2 = st.columns(2)
@@ -288,7 +291,6 @@ with main_tabs[0]:
             else:
                 if code_secret: st.warning("Code incorrect")
 
-    # --- SOUS-ONGLET 3 : EXPORTS PDF ---
     with sub_tabs_config[2]:
         st.header("📄 Génération des Exports PDF")
         l_jours = sorted(st.session_state.planning["Jour"].unique())
@@ -332,6 +334,8 @@ with main_tabs[0]:
                         df_base = df_base[df_base["Groupe"] == sel_grp_exp]
                     
                     dico_besoins = {}
+                    
+                    # AJOUT INFOS TECHNIQUES PAR GROUPE DANS LE PDF
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.infos_techniques:
                         inf = st.session_state.infos_techniques[sel_grp_exp]
                         df_inf = pd.DataFrame([
@@ -401,17 +405,17 @@ with main_tabs[1]:
                 artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
                 sel_a = st.selectbox("🎸 Groupe", artistes)
                 
-                # RESTAURATION : Visualisation des PDF pour le groupe sélectionné
+                # RESTAURATION BOUTON RIDER PDF
                 if sel_a and sel_a in st.session_state.riders_stockage:
                     riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
                     if riders_groupe:
                         sel_file = st.selectbox("📂 Voir Rider(s)", ["-- Choisir --"] + riders_groupe, key=f"v_{sel_a}")
                         if sel_file != "-- Choisir --":
                             b64 = base64.b64encode(st.session_state.riders_stockage[sel_a][sel_file]).decode('utf-8')
-                            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir {sel_file}</a>', unsafe_allow_html=True)
 
             if sel_a:
-                # ZONE CIRCUITS & MONITORING
+                # ZONE INFOS TECHNIQUES (DEMANDE INITIALE)
                 if sel_a not in st.session_state.infos_techniques:
                     st.session_state.infos_techniques[sel_a] = {"entrees": "", "ear": "", "stereo": "", "mono": ""}
                 
@@ -479,3 +483,4 @@ with main_tabs[1]:
     with sub_tabs_tech[1]:
         st.subheader("📋 Patch IN / OUT")
         st.info("Cette section sera bientôt disponible.")
+    
