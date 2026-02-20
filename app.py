@@ -606,7 +606,6 @@ with main_tabs[1]:
                 liste_stands = [""] + df_mat_jour[df_mat_jour["Catégorie"] == "PIEDS MICROS"]["Modèle"].dropna().unique().tolist()
                 
                 nb_inputs_grp = get_circ(sel_a_p, "inputs")
-                liste_inputs = [""] + [f"INPUT {i}" for i in range(1, nb_inputs_grp + 1)] if nb_inputs_grp > 0 else [""]
 
                 # --- CONFIGURATION SELON LE TYPE DE PATCH ---
                 if type_patch == "PATCH 12N":
@@ -645,13 +644,33 @@ with main_tabs[1]:
                 # --- AFFICHAGE DES TABLEAUX ---
                 toutes_les_saisies = pd.DataFrame() # Utilisé pour vérifier les doublons
                 
-                for t_name in titres_tables:
+                for i, t_name in enumerate(titres_tables):
                     st.markdown(f"**{t_name}**")
+                    
+                    # 1. Calcul des Inputs spécifiques pour ce tableau (Partitionnement 1-12 / 13-24 / etc.)
+                    if type_patch == "PATCH 12N":
+                        start_in = i * 12 + 1
+                        end_in = min((i + 1) * 12, nb_inputs_grp)
+                    else: # PATCH 20H
+                        start_in = i * 20 + 1
+                        end_in = min((i + 1) * 20, nb_inputs_grp)
+                        
+                    inputs_table = [""] + [f"INPUT {k}" for k in range(start_in, end_in + 1)] if start_in <= end_in else [""]
+
+                    # 2. Filtrage dynamique des Boitiers (exclus si utilisés dans un AUTRE tableau)
+                    boitiers_autres_tables = []
+                    for name, df_saved in st.session_state[dict_key].items():
+                        if name != t_name and name in st.session_state[dict_key]:
+                            boitiers_autres_tables.extend(df_saved[df_saved["Boitier"] != ""]["Boitier"].tolist())
+                    
+                    boitiers_dispo = [b for b in boitiers_opts if b == "" or b not in boitiers_autres_tables]
+
+                    # 3. Affichage du tableau via SelectboxColumn
                     df_edit = st.data_editor(
                         st.session_state[dict_key][t_name],
                         column_config={
-                            "Boitier": st.column_config.SelectboxColumn("Boitier", options=boitiers_opts),
-                            "Input": st.column_config.SelectboxColumn("Input", options=liste_inputs),
+                            "Boitier": st.column_config.SelectboxColumn("Boitier", options=boitiers_dispo),
+                            "Input": st.column_config.SelectboxColumn("Input", options=inputs_table),
                             "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
                             "Source": st.column_config.TextColumn("Source"),
                             "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
@@ -661,14 +680,16 @@ with main_tabs[1]:
                         use_container_width=True,
                         key=f"editor_{dict_key}_{t_name}"
                     )
+                    
                     # Mise à jour des données en mémoire
                     st.session_state[dict_key][t_name] = df_edit
-                    df_edit["Nom_Tableau"] = t_name 
-                    toutes_les_saisies = pd.concat([toutes_les_saisies, df_edit], ignore_index=True)
+                    df_edit_copy = df_edit.copy()
+                    df_edit_copy["Nom_Tableau"] = t_name 
+                    toutes_les_saisies = pd.concat([toutes_les_saisies, df_edit_copy], ignore_index=True)
                     st.write("")
 
                 # --- ALERTE ET VERIFICATIONS DYNAMIQUES ---
-                # 1. Vérification des doublons sur les INPUTS (interdit sur toutes les lignes/tableaux)
+                # 1. Vérification des doublons sur les INPUTS (dans un même tableau)
                 inputs_saisis = toutes_les_saisies[toutes_les_saisies["Input"] != ""]["Input"].tolist()
                 doublons_in = set([x for x in inputs_saisis if inputs_saisis.count(x) > 1])
                 
@@ -680,7 +701,7 @@ with main_tabs[1]:
                 if doublons_in or doublons_boitiers:
                     st.error("⚠️ **Des conflits ont été détectés dans votre saisie :**")
                     if doublons_in:
-                        st.warning(f"❌ Les entrées suivantes sont utilisées plusieurs fois : **{', '.join(doublons_in)}**")
+                        st.warning(f"❌ Les entrées suivantes sont saisies plusieurs fois : **{', '.join(doublons_in)}**")
                     if doublons_boitiers:
                         st.warning(f"❌ Les boitiers suivants sont utilisés sur plusieurs tableaux en même temps : **{', '.join(doublons_boitiers)}**")
 
