@@ -354,7 +354,6 @@ with main_tabs[0]:
                     
                     dico_besoins = {}
                     
-                    # AJOUT : Circuits spécifiques si filtré par groupe
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                         c = st.session_state.artist_circuits[sel_grp_exp]
                         dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
@@ -427,7 +426,6 @@ with main_tabs[1]:
                 artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
                 sel_a = st.selectbox("🎸 Groupe", artistes)
                 
-                # Bloc Riders PDF
                 if sel_a and sel_a in st.session_state.riders_stockage:
                     riders_groupe = list(st.session_state.riders_stockage[sel_a].keys())
                     if riders_groupe:
@@ -439,7 +437,6 @@ with main_tabs[1]:
                             st.markdown(pdf_link, unsafe_allow_html=True)
 
             if sel_a:
-                # --- NOUVELLE SECTION : CIRCUITS (ETAPE 1) ---
                 st.divider()
                 st.subheader(f"⚙️ Configuration des circuits : {sel_a}")
                 if sel_a not in st.session_state.artist_circuits:
@@ -532,7 +529,6 @@ with main_tabs[1]:
         st.subheader("📋 Patch IN / OUT")
         
         if not st.session_state.planning.empty:
-            # 1ère Ligne : Sélection Jour / Scène / Groupe
             f1_p, f2_p, f3_p = st.columns(3)
             with f1_p: 
                 sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
@@ -544,21 +540,17 @@ with main_tabs[1]:
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
             if sel_a_p:
-                # Récupération de tous les artistes du jour sur cette scène triés par heure
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                # Fonction utilitaire pour récupérer une valeur de circuit en gérant les dictionnaires vides
                 def get_circ(art, key):
                     return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
-                # Initialisation des variables MAX
                 max_inputs = 0
                 max_ear = 0
                 max_mon_s = 0
                 max_mon_m = 0
 
-                # Calcul des MAX consécutifs
                 if len(liste_art_patch) == 1:
                     a1 = liste_art_patch[0]
                     max_inputs = get_circ(a1, "inputs")
@@ -569,61 +561,52 @@ with main_tabs[1]:
                     for i in range(len(liste_art_patch) - 1):
                         a1 = liste_art_patch[i]
                         a2 = liste_art_patch[i+1]
-                        
                         max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
                         max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
                         max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
 
-                # 2ème Ligne : Visualisation PATCH MAX SCENE
                 st.divider()
                 st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
                 col_max1, col_max2, col_max3, col_max4 = st.columns(4)
-                
                 with col_max1: st.metric("Max Circuits Entrées", max_inputs)
                 with col_max2: st.metric("Max EAR Stéréo", max_ear)
                 with col_max3: st.metric("Max MON Stéréo", max_mon_s)
                 with col_max4: st.metric("Max MON Mono", max_mon_m)
 
-                # 3ème Ligne : Besoins du groupe sélectionné
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
                 col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
-                
                 with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_p, "inputs"))
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
 
-                # 4ème Ligne : Saisie du PATCH (NOUVEAUTE)
                 st.divider()
                 st.subheader(f"🔌 Saisie détaillée du Patch IN/OUT : {sel_a_p}")
-                
                 patch_type = st.radio("Sélectionnez le format de Patch :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                 
-                # --- Préparation des listes déroulantes basées sur le matériel saisi ---
-                df_equip_patch = st.session_state.fiches_tech[(st.session_state.fiches_tech["Jour"] == sel_j_p) & (st.session_state.fiches_tech["Scène"] == sel_s_p)]
+                df_equip_patch = st.session_state.fiches_tech[(st.session_state.fiches_tech["Jour"] == sel_j_p) & (st.session_state.fiches_tech["Scène"] == sel_s_p) & (st.session_state.fiches_tech["Groupe"] == sel_a_p)]
                 excl_cats = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
+                micro_di_list = sorted(df_equip_patch[~df_equip_patch["Catégorie"].isin(excl_cats)]["Modèle"].dropna().unique().tolist())
+                stand_list = sorted(df_equip_patch[df_equip_patch["Catégorie"] == "PIEDS MICROS"]["Modèle"].dropna().unique().tolist())
                 
-                micro_di_list = df_equip_patch[~df_equip_patch["Catégorie"].isin(excl_cats)]["Modèle"].dropna().unique().tolist()
-                stand_list = df_equip_patch[df_equip_patch["Catégorie"] == "PIEDS MICROS"]["Modèle"].dropna().unique().tolist()
-                
-                if not micro_di_list: micro_di_list = ["-- Aucun équipement compatible --"]
-                if not stand_list: stand_list = ["-- Aucun pied --"]
-
-                inputs_grp = get_circ(sel_a_p, "inputs")
-                input_choices = [f"INPUT {i}" for i in range(1, inputs_grp + 1)] if inputs_grp > 0 else ["--"]
-
                 patch_key = f"patch_data_{sel_j_p}_{sel_s_p}_{sel_a_p}_{patch_type}"
                 if patch_key not in st.session_state.patch_assignments:
                     st.session_state.patch_assignments[patch_key] = {}
 
-                st.info("💡 Note technique : Assurez-vous de ne pas attribuer le même Input sur plusieurs lignes. Les tableaux dynamiques de Streamlit listent toutes les options pour faciliter la saisie rapide.")
-
-                # --- Logique d'affichage des tableaux ---
+                inputs_totaux_groupe = get_circ(sel_a_p, "inputs")
+                
+                # --- LOGIQUE PATCH 12N ---
                 if patch_type == "PATCH 12N":
-                    nb_tables = math.ceil(inputs_grp / 12) if inputs_grp > 0 else 1
+                    nb_tables = math.ceil(inputs_totaux_groupe / 12) if inputs_totaux_groupe > 0 else 1
                     boitiers_12n = [f"B12M/F {i}" for i in range(1, 10)]
+
+                    # Collecte de toutes les inputs déjà sélectionnées dans TOUS les tableaux pour ce groupe
+                    all_selected_inputs = []
+                    for t_n in [f"DEPART {i}" for i in range(1, nb_tables + 1)]:
+                        if t_n in st.session_state.patch_assignments[patch_key]:
+                            all_selected_inputs.extend(st.session_state.patch_assignments[patch_key][t_n]["Input"].dropna().tolist())
 
                     for i in range(1, nb_tables + 1):
                         t_name = f"DEPART {i}"
@@ -632,48 +615,74 @@ with main_tabs[1]:
                         if t_name not in st.session_state.patch_assignments[patch_key]:
                             st.session_state.patch_assignments[patch_key][t_name] = pd.DataFrame(columns=["Boîtier", "Input", "Micro / DI", "Source", "Stand", "48V"])
                         
+                        # Filtrage des inputs : seulement la tranche de 12
+                        start_in = (i-1)*12 + 1
+                        end_in = min(i*12, inputs_totaux_groupe)
+                        available_inputs_tranche = [f"INPUT {k}" for k in range(start_in, end_in + 1)]
+                        
+                        # Options de boîtier dynamiques (disparaissent si utilisés dans un autre tableau)
+                        other_tables_boitiers = []
+                        for other_t in st.session_state.patch_assignments[patch_key]:
+                            if other_t != t_name:
+                                other_tables_boitiers.extend(st.session_state.patch_assignments[patch_key][other_t]["Boîtier"].dropna().unique().tolist())
+                        
+                        dynamic_boitiers = [b for b in boitiers_12n if b not in other_tables_boitiers]
+
                         edited_df = st.data_editor(
                             st.session_state.patch_assignments[patch_key][t_name],
                             key=f"ed_12n_{patch_key}_{i}",
                             num_rows="dynamic",
                             use_container_width=True,
+                            hide_index=True, # Masquage de la 1ère colonne (index)
                             column_config={
-                                "Boîtier": st.column_config.SelectboxColumn("Choix B12M/F", options=boitiers_12n),
-                                "Input": st.column_config.SelectboxColumn("Choix Input", options=input_choices),
+                                "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=dynamic_boitiers, help="Les boîtiers utilisés ailleurs n'apparaissent plus"),
+                                "Input": st.column_config.SelectboxColumn("Input", options=available_inputs_tranche, help=f"Tranche {start_in} à {end_in}"),
                                 "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=micro_di_list),
-                                "Source": st.column_config.TextColumn("Source (Saisie libre)"),
+                                "Source": st.column_config.TextColumn("Source"),
                                 "Stand": st.column_config.SelectboxColumn("Stand", options=stand_list),
                                 "48V": st.column_config.CheckboxColumn("48V", default=False),
                             }
                         )
+                        # Vérification des doublons d'Input dans le même tableau
+                        if edited_df["Input"].duplicated().any():
+                            st.warning(f"⚠️ Attention : Des doublons d'Inputs ont été détectés dans {t_name}")
+                        
                         st.session_state.patch_assignments[patch_key][t_name] = edited_df
 
+                # --- LOGIQUE PATCH 20H ---
                 elif patch_type == "PATCH 20H":
                     master_name = "MASTER PATCH40" if max_inputs <= 40 else "MASTER PATCH60"
                     nb_depart = math.ceil(max_inputs / 20) if max_inputs > 0 else 1
-                    
                     boitiers_20h = [f"B20 {i}" for i in range(1, 10)]
                     if max_inputs <= 40: boitiers_20h.append("PATCH40")
                     elif max_inputs <= 60: boitiers_20h.append("PATCH60")
 
                     table_names = [master_name] + [f"DEPART {i}" for i in range(1, nb_depart + 1)]
+                    input_choices = [f"INPUT {k}" for k in range(1, inputs_totaux_groupe + 1)]
 
                     for t_name in table_names:
                         st.markdown(f"**📝 {t_name}**")
-                        
                         if t_name not in st.session_state.patch_assignments[patch_key]:
                             st.session_state.patch_assignments[patch_key][t_name] = pd.DataFrame(columns=["Boîtier", "Input", "Micro / DI", "Source", "Stand", "48V"])
                         
+                        # Boîtiers dynamiques
+                        other_tables_boitiers = []
+                        for other_t in st.session_state.patch_assignments[patch_key]:
+                            if other_t != t_name:
+                                other_tables_boitiers.extend(st.session_state.patch_assignments[patch_key][other_t]["Boîtier"].dropna().unique().tolist())
+                        dynamic_boitiers = [b for b in boitiers_20h if b not in other_tables_boitiers]
+
                         edited_df = st.data_editor(
                             st.session_state.patch_assignments[patch_key][t_name],
                             key=f"ed_20h_{patch_key}_{t_name}",
                             num_rows="dynamic",
                             use_container_width=True,
+                            hide_index=True, # Masquage de la 1ère colonne
                             column_config={
-                                "Boîtier": st.column_config.SelectboxColumn("Choix B20", options=boitiers_20h),
-                                "Input": st.column_config.SelectboxColumn("Choix Input", options=input_choices),
+                                "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=dynamic_boitiers),
+                                "Input": st.column_config.SelectboxColumn("Input", options=input_choices),
                                 "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=micro_di_list),
-                                "Source": st.column_config.TextColumn("Source (Saisie libre)"),
+                                "Source": st.column_config.TextColumn("Source"),
                                 "Stand": st.column_config.SelectboxColumn("Stand", options=stand_list),
                                 "48V": st.column_config.CheckboxColumn("48V", default=False),
                             }
@@ -681,4 +690,4 @@ with main_tabs[1]:
                         st.session_state.patch_assignments[patch_key][t_name] = edited_df
 
         else:
-            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+            st.info("⚠️ Ajoutez d'abord des artistes dans le planning pour gérer le patch.")
