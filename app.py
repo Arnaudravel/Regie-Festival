@@ -6,6 +6,7 @@ import io
 import pickle
 import base64
 import streamlit.components.v1 as components
+import math
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
@@ -44,6 +45,8 @@ if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
+if 'patch_data' not in st.session_state:
+    st.session_state.patch_data = {}
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -250,7 +253,8 @@ with main_tabs[0]:
                     "artist_circuits": st.session_state.artist_circuits,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
-                    "custom_catalog": st.session_state.custom_catalog
+                    "custom_catalog": st.session_state.custom_catalog,
+                    "patch_data": st.session_state.patch_data
                 }
                 pickle_out = pickle.dumps(data_to_save)
                 st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
@@ -267,6 +271,7 @@ with main_tabs[0]:
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                            st.session_state.patch_data = data_loaded.get("patch_data", {})
                             st.success("Session restaurée avec succès !")
                             st.rerun()
                         except Exception as e:
@@ -589,6 +594,95 @@ with main_tabs[1]:
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
+
+                # ==========================================
+                # ÉTAPE 3 : SAISIE PATCH IN / OUT
+                # ==========================================
+                st.divider()
+                st.subheader("🛠️ Saisie détaillée du PATCH IN / OUT")
+                
+                patch_mode = st.radio("Type de Patch", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                
+                # Génération des clés de stockage pour le dictionnaire session_state
+                patch_key = f"{sel_j_p}_{sel_s_p}_{sel_a_p}"
+                if patch_key not in st.session_state.patch_data:
+                    st.session_state.patch_data[patch_key] = {}
+                if patch_mode not in st.session_state.patch_data[patch_key]:
+                    st.session_state.patch_data[patch_key][patch_mode] = {}
+
+                # Préparation des listes dynamiques depuis la saisie matériel
+                tech_grp = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
+                excl_cats = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
+                
+                items_dispo = tech_grp[~tech_grp["Catégorie"].isin(excl_cats)]["Modèle"].dropna().unique().tolist()
+                stands_dispo = tech_grp[tech_grp["Catégorie"] == "PIEDS MICROS"]["Modèle"].dropna().unique().tolist()
+                
+                if not items_dispo: items_dispo = ["-- Saisir matériel au préalable --"]
+                if not stands_dispo: stands_dispo = ["-- Saisir pieds au préalable --"]
+                
+                # Liste des Inputs disponibles pour le groupe
+                grp_inputs = get_circ(sel_a_p, "inputs")
+                inputs_dispo = [str(i) for i in range(1, grp_inputs + 1)] if grp_inputs > 0 else [""]
+                
+                tables_to_show = []
+                choix_options = []
+                
+                if patch_mode == "PATCH 12N":
+                    choix_options = [f"B12M/F {i}" for i in range(1, 10)]
+                    nb_departs = math.ceil(max_inputs / 10) if max_inputs > 0 else 1
+                    tables_to_show = [f"DEPART {i}" for i in range(1, nb_departs + 1)]
+                else:
+                    choix_options = [f"B20 {i}" for i in range(1, 10)] + ["PATCH40", "PATCH60"]
+                    if max_inputs <= 40:
+                        tables_to_show.append("MASTER PATCH40")
+                    elif max_inputs <= 60:
+                        tables_to_show.append("MASTER PATCH60")
+                    else:
+                        tables_to_show.append("MASTER PATCH MAX")
+                    
+                    nb_departs = math.ceil(max_inputs / 20) if max_inputs > 0 else 1
+                    for i in range(1, nb_departs + 1):
+                        tables_to_show.append(f"DEPART {i}")
+
+                st.info("💡 L'ajout de ligne est automatique (éditez la dernière ligne vide). Il n'est pas possible de fusionner les cellules, mais vous pouvez répéter la valeur du départ sur les lignes suivantes.")
+
+                # Traitement de l'affichage et stockage des tables de Patch
+                all_selected_inputs = []
+
+                for tbl_name in tables_to_show:
+                    st.markdown(f"**{tbl_name}**")
+                    if tbl_name not in st.session_state.patch_data[patch_key][patch_mode]:
+                        st.session_state.patch_data[patch_key][patch_mode][tbl_name] = pd.DataFrame(
+                            columns=["Choix", "Position", "Input", "Item", "Désignation / Instrument", "Stand"]
+                        )
+                    
+                    df_edit = st.data_editor(
+                        st.session_state.patch_data[patch_key][patch_mode][tbl_name],
+                        num_rows="dynamic",
+                        column_config={
+                            "Choix": st.column_config.SelectboxColumn("Choix du Départ", options=choix_options),
+                            "Position": st.column_config.TextColumn("Position (Saisie Libre)"),
+                            "Input": st.column_config.SelectboxColumn("Choix des input", options=inputs_dispo),
+                            "Item": st.column_config.SelectboxColumn("Item", options=items_dispo),
+                            "Désignation / Instrument": st.column_config.TextColumn("Désignation / Instrument"),
+                            "Stand": st.column_config.SelectboxColumn("Stand", options=stands_dispo),
+                        },
+                        key=f"editor_{patch_key}_{patch_mode}_{tbl_name}",
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.session_state.patch_data[patch_key][patch_mode][tbl_name] = df_edit
+                    
+                    # Récupération des inputs pour vérifier les doublons
+                    for val in df_edit["Input"].dropna().tolist():
+                        if val != "" and val != "-- Aucun input --":
+                            all_selected_inputs.append(val)
+                            
+                # Alerte en cas de doublons d'Input
+                import collections
+                duplicates = [item for item, count in collections.Counter(all_selected_inputs).items() if count > 1]
+                if duplicates:
+                    st.error(f"⚠️ Attention : L'Input ou les Inputs suivants sont affectés sur plusieurs cellules : {', '.join(duplicates)}")
 
         else:
             st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
