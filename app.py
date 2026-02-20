@@ -588,7 +588,6 @@ with main_tabs[1]:
                 st.divider()
                 mode_patch = st.radio("Saisie du Patch", ["PATCH 12N", "PATCH 20H"], horizontal=True)
 
-                # Préparation des données de filtrage
                 items_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
                 cats_exclues = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
                 list_items = sorted(items_art[~items_art["Catégorie"].isin(cats_exclues)]["Modèle"].unique().tolist())
@@ -596,16 +595,13 @@ with main_tabs[1]:
                 list_inputs = [f"INPUT {i+1}" for i in range(num_in_art)]
 
                 if num_in_art > 0:
-                    # Calculer nombre de tableaux
                     divisor = 12 if mode_patch == "PATCH 12N" else 20
                     nb_tableaux = math.ceil(num_in_art / divisor)
                     
-                    # Identifiant unique de session pour le patch de cet artiste
                     patch_key = f"data_{sel_a_p}_{mode_patch}"
                     if patch_key not in st.session_state.patch_data:
                         st.session_state.patch_data[patch_key] = [pd.DataFrame(columns=["Boitier", "Position Boitier", "Input", "Item", "Désignation / Instrument", "Stand"]) for _ in range(nb_tableaux)]
 
-                    # Listes des boîtiers
                     if mode_patch == "PATCH 12N":
                         list_boitiers = [f"B12M/F {i+1}" for i in range(9)]
                     else:
@@ -613,34 +609,35 @@ with main_tabs[1]:
                         if max_inputs <= 40: list_boitiers.append("PATCH40")
                         elif max_inputs <= 60: list_boitiers.append("PATCH60")
 
-                    # MASTER PATCH LOGIC pour 20H
                     if mode_patch == "PATCH 20H":
                         title_master = "MASTER PATCH40" if max_inputs <= 40 else "MASTER PATCH60"
                         st.info(f"Configuration : **{title_master}**")
 
-                    # Affichage des tableaux
+                    # --- CALCUL DES OCCUPATIONS GLOBALES ---
+                    all_assigned_inputs = []
+                    for df in st.session_state.patch_data[patch_key]:
+                        all_assigned_inputs.extend(df["Input"].dropna().tolist())
+
                     for t_idx in range(nb_tableaux):
                         st.write(f"### DEPART {t_idx + 1}")
                         
-                        # Calculer les boîtiers déjà utilisés dans les AUTRES tableaux
+                        # LOGIQUE BOITIERS : Disparait des AUTRES tableaux (mais reste dispo dans celui-ci)
                         used_boitiers_others = []
                         for other_idx, df_other in enumerate(st.session_state.patch_data[patch_key]):
                             if other_idx != t_idx:
                                 used_boitiers_others.extend(df_other["Boitier"].dropna().unique().tolist())
-                        
                         available_boitiers = [b for b in list_boitiers if b not in used_boitiers_others]
                         
-                        # Calculer les inputs déjà utilisés dans TOUS les tableaux
-                        used_inputs = []
-                        for df_all in st.session_state.patch_data[patch_key]:
-                            used_inputs.extend(df_all["Input"].dropna().unique().tolist())
-                        
-                        # Pour le tableau actuel, les inputs dispos sont ceux non utilisés ailleurs + ceux déjà utilisés dans ce tableau
+                        # LOGIQUE INPUTS : Doit disparaitre de TOUT le monde une fois choisi
+                        # On récupère les inputs du tableau actuel pour que Streamlit les affiche correctement
                         current_df = st.session_state.patch_data[patch_key][t_idx]
-                        current_inputs = current_df["Input"].dropna().unique().tolist()
-                        available_inputs = [i for i in list_inputs if i not in used_inputs or i in current_inputs]
+                        current_inputs_in_table = current_df["Input"].dropna().tolist()
+                        
+                        # Liste finale pour ce tableau = (Tous - Assignés Partout) + (Assignés dans ce tableau)
+                        # On rajoute 'current_inputs_in_table' pour éviter que Streamlit ne montre une erreur 
+                        # quand l'input est déjà dans la cellule, mais on filtre pour les nouvelles lignes.
+                        available_inputs = [i for i in list_inputs if i not in all_assigned_inputs or i in current_inputs_in_table]
 
-                        # Editeur de données
                         edited_df = st.data_editor(
                             current_df,
                             column_config={
@@ -655,7 +652,6 @@ with main_tabs[1]:
                             hide_index=True
                         )
                         
-                        # Sauvegarde si changement
                         if not edited_df.equals(current_df):
                             st.session_state.patch_data[patch_key][t_idx] = edited_df
                             st.rerun()
