@@ -34,7 +34,7 @@ if 'riders_stockage' not in st.session_state:
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
 if 'patch_data' not in st.session_state:
-    st.session_state.patch_data = {} # Stockage structuré par Artiste -> NomTableau
+    st.session_state.patch_data = {} 
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -539,7 +539,7 @@ with main_tabs[1]:
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
             if sel_a_p:
-                # --- CALCULS DES METRIQUES (PATCH MAX SCENE) ---
+                # --- CALCULS DES METRIQUES ---
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
@@ -558,16 +558,16 @@ with main_tabs[1]:
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
                         max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
 
-                # Visualisation PATCH MAX SCENE (HAUT DE PAGE)
+                # Visualisation PATCH MAX SCENE
                 st.divider()
-                st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
+                st.subheader(f"🔥 PATCH MAX SCENE")
                 col_max1, col_max2, col_max3, col_max4 = st.columns(4)
                 with col_max1: st.metric("Max Circuits Entrées", max_inputs)
                 with col_max2: st.metric("Max EAR Stéréo", max_ear)
                 with col_max3: st.metric("Max MON Stéréo", max_mon_s)
                 with col_max4: st.metric("Max MON Mono", max_mon_m)
 
-                # Besoins du groupe sélectionné
+                # Besoins du groupe
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
                 col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
@@ -580,21 +580,18 @@ with main_tabs[1]:
                 st.divider()
                 mode_patch = st.radio("Choix de SAISIE", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                 
-                # Récupération matériel groupe pour filtrage Micro/Stand
                 df_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
                 excl_cat = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
-                liste_micro_di = df_art[~df_art["Catégorie"].isin(excl_cat)]["Modèle"].unique().tolist()
-                liste_stands = df_art[df_art["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
+                liste_micro_di = [""] + df_art[~df_art["Catégorie"].isin(excl_cat)]["Modèle"].unique().tolist()
+                liste_stands = [""] + df_art[df_art["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
                 max_in_art = get_circ(sel_a_p, "inputs")
 
-                # Initialisation de la structure de stockage par artiste si inexistante
                 if sel_a_p not in st.session_state.patch_data:
                     st.session_state.patch_data[sel_a_p] = {}
 
-                # --- LOGIQUE DE GÉNÉRATION DES TABLEAUX ---
                 if mode_patch == "PATCH 12N":
                     nb_tables = math.ceil(max_in_art / 12) if max_in_art > 0 else 1
-                    box_opts = [f"B12M/F {i+1}" for i in range(9)]
+                    box_opts = [f"B12M/F {i+1}" for i in range(12)]
                     
                     for t in range(nb_tables):
                         start_in = t * 12 + 1
@@ -602,24 +599,29 @@ with main_tabs[1]:
                         table_label = f"DEPART {t+1} ( {start_in} --> {end_in} )"
                         st.subheader(f"📍 {table_label}")
 
-                        # Filtrage de la liste d'inputs pour ce tableau
                         options_inputs = [f"INPUT {i}" for i in range(start_in, end_in + 1)]
 
-                        # Initialisation spécifique pour ce tableau si inexistant
                         if table_label not in st.session_state.patch_data[sel_a_p]:
-                            st.session_state.patch_data[sel_a_p][table_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                            # Initialisation avec types de données explicites pour éviter les "None"
+                            st.session_state.patch_data[sel_a_p][table_label] = pd.DataFrame({
+                                "Box": pd.Series(dtype='str'),
+                                "Input": pd.Series(dtype='str'),
+                                "Micro/DI": pd.Series(dtype='str'),
+                                "Source": pd.Series(dtype='str'),
+                                "Stand": pd.Series(dtype='str'),
+                                "48V": pd.Series(dtype='bool')
+                            })
 
-                        # Configuration des colonnes
+                        # Configuration des colonnes avec VALEURS PAR DÉFAUT (fixe le problème du "None")
                         col_cfg = {
-                            "Box": st.column_config.SelectboxColumn("Box", options=box_opts, required=True),
-                            "Input": st.column_config.SelectboxColumn("Input", options=options_inputs, required=True),
-                            "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
-                            "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
+                            "Box": st.column_config.SelectboxColumn("Box", options=box_opts, default=box_opts[0]),
+                            "Input": st.column_config.SelectboxColumn("Input", options=options_inputs, default=options_inputs[0]),
+                            "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di, default=""),
+                            "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands, default=""),
                             "48V": st.column_config.CheckboxColumn("48V", default=False)
                         }
 
-                        # Affichage du Data Editor et capture des changements pour persistance
-                        res_ed = st.data_editor(
+                        st.session_state.patch_data[sel_a_p][table_label] = st.data_editor(
                             st.session_state.patch_data[sel_a_p][table_label],
                             key=f"ed_12n_{sel_a_p}_{t}",
                             use_container_width=True,
@@ -627,8 +629,6 @@ with main_tabs[1]:
                             column_config=col_cfg,
                             hide_index=True
                         )
-                        # On met à jour l'historique immédiatement
-                        st.session_state.patch_data[sel_a_p][table_label] = res_ed
 
                 else: # MODE 20H
                     nb_departs = math.ceil(max_in_art / 20) if max_in_art > 0 else 1
@@ -637,10 +637,12 @@ with main_tabs[1]:
                     if max_in_art <= 40: box_opts_20h.append("PATCH40")
                     elif max_in_art <= 60: box_opts_20h.append("PATCH60")
 
-                    # Tableau Master
                     st.subheader(f"🖥️ {master_label}")
                     if master_label not in st.session_state.patch_data[sel_a_p]:
-                        st.session_state.patch_data[sel_a_p][master_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                        st.session_state.patch_data[sel_a_p][master_label] = pd.DataFrame({
+                            "Box": pd.Series(dtype='str'), "Input": pd.Series(dtype='str'), "Micro/DI": pd.Series(dtype='str'),
+                            "Source": pd.Series(dtype='str'), "Stand": pd.Series(dtype='str'), "48V": pd.Series(dtype='bool')
+                        })
                     
                     st.session_state.patch_data[sel_a_p][master_label] = st.data_editor(
                         st.session_state.patch_data[sel_a_p][master_label],
@@ -649,9 +651,10 @@ with main_tabs[1]:
                         num_rows="dynamic",
                         hide_index=True,
                         column_config={
-                            "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h),
-                            "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
-                            "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands)
+                            "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h, default=box_opts_20h[0]),
+                            "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di, default=""),
+                            "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands, default=""),
+                            "48V": st.column_config.CheckboxColumn("48V", default=False)
                         }
                     )
 
@@ -662,7 +665,10 @@ with main_tabs[1]:
                         st.subheader(f"📍 {dep_label}")
                         
                         if dep_label not in st.session_state.patch_data[sel_a_p]:
-                            st.session_state.patch_data[sel_a_p][dep_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                            st.session_state.patch_data[sel_a_p][dep_label] = pd.DataFrame({
+                                "Box": pd.Series(dtype='str'), "Input": pd.Series(dtype='str'), "Micro/DI": pd.Series(dtype='str'),
+                                "Source": pd.Series(dtype='str'), "Stand": pd.Series(dtype='str'), "48V": pd.Series(dtype='bool')
+                            })
                         
                         opts_in_20 = [f"INPUT {i}" for i in range(start_in, end_in+1)]
                         st.session_state.patch_data[sel_a_p][dep_label] = st.data_editor(
@@ -672,14 +678,15 @@ with main_tabs[1]:
                             num_rows="dynamic",
                             hide_index=True,
                             column_config={
-                                "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h),
-                                "Input": st.column_config.SelectboxColumn("Input", options=opts_in_20),
-                                "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
-                                "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands)
+                                "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h, default=box_opts_20h[0]),
+                                "Input": st.column_config.SelectboxColumn("Input", options=opts_in_20, default=opts_in_20[0] if opts_in_20 else None),
+                                "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di, default=""),
+                                "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands, default=""),
+                                "48V": st.column_config.CheckboxColumn("48V", default=False)
                             }
                         )
 
-                st.info("💡 Ajoutez des lignes via le '+' en bas de chaque tableau. Les données sont sauvegardées automatiquement dans votre session.")
+                st.info("💡 Les nouvelles lignes utilisent désormais des valeurs par défaut pour valider l'enregistrement immédiatement.")
 
         else:
-            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits.")
