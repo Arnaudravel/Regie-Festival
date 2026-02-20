@@ -34,7 +34,7 @@ if 'riders_stockage' not in st.session_state:
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
 if 'patch_data' not in st.session_state:
-    st.session_state.patch_data = {} # Stockage des tableaux de patch
+    st.session_state.patch_data = {} # Stockage structuré par Artiste -> NomTableau
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -251,7 +251,7 @@ with main_tabs[0]:
                     "fiches_tech": st.session_state.fiches_tech,
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
-                    "patch_data": st.session_state.patch_data, # Ajout sauvegarde patch
+                    "patch_data": st.session_state.patch_data,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog
@@ -268,7 +268,7 @@ with main_tabs[0]:
                             st.session_state.fiches_tech = data_loaded["fiches_tech"]
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
-                            st.session_state.patch_data = data_loaded.get("patch_data", {}) # Ajout restauration patch
+                            st.session_state.patch_data = data_loaded.get("patch_data", {})
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
@@ -309,8 +309,8 @@ with main_tabs[0]:
     # --- SOUS-ONGLET 3 : EXPORTS PDF ---
     with sub_tabs_config[2]:
         st.header("📄 Génération des Exports PDF")
-        l_jours = sorted(st.session_state.planning["Jour"].unique())
-        l_scenes = sorted(st.session_state.planning["Scène"].unique())
+        l_jours = sorted(st.session_state.planning["Jour"].unique()) if not st.session_state.planning.empty else []
+        l_scenes = sorted(st.session_state.planning["Scène"].unique()) if not st.session_state.planning.empty else []
         cex1, cex2 = st.columns(2)
 
         with cex1:
@@ -558,7 +558,7 @@ with main_tabs[1]:
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
                         max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
 
-                # Visualisation PATCH MAX SCENE
+                # Visualisation PATCH MAX SCENE (HAUT DE PAGE)
                 st.divider()
                 st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
                 col_max1, col_max2, col_max3, col_max4 = st.columns(4)
@@ -580,61 +580,106 @@ with main_tabs[1]:
                 st.divider()
                 mode_patch = st.radio("Choix de SAISIE", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                 
-                # Récupération matériel groupe
+                # Récupération matériel groupe pour filtrage Micro/Stand
                 df_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
                 excl_cat = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
                 liste_micro_di = df_art[~df_art["Catégorie"].isin(excl_cat)]["Modèle"].unique().tolist()
                 liste_stands = df_art[df_art["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
                 max_in_art = get_circ(sel_a_p, "inputs")
-                all_inputs_opt = [f"INPUT {i+1}" for i in range(max_in_art)]
 
+                # Initialisation de la structure de stockage par artiste si inexistante
                 if sel_a_p not in st.session_state.patch_data:
-                    st.session_state.patch_data[sel_a_p] = pd.DataFrame(columns=["ID", "Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                    st.session_state.patch_data[sel_a_p] = {}
 
-                current_patch = st.session_state.patch_data[sel_a_p]
-
-                # Filtrage des inputs déjà utilisés par d'autres lignes
-                used_inputs = current_patch["Input"].dropna().tolist()
-
-                # --- GENERATION DES TABLEAUX DYNAMIQUES ---
+                # --- LOGIQUE DE GÉNÉRATION DES TABLEAUX ---
                 if mode_patch == "PATCH 12N":
-                    nb_tables = math.ceil(max_in_art / 10) if max_in_art > 0 else 1 # On crée 4 tableaux pour 40 inputs
+                    nb_tables = math.ceil(max_in_art / 12) if max_in_art > 0 else 1
                     box_opts = [f"B12M/F {i+1}" for i in range(9)]
+                    
                     for t in range(nb_tables):
-                        st.subheader(f"📍 DEPART {t+1}")
-                        # On affiche un data_editor pour chaque départ
-                        key_ed = f"ed_12n_{sel_a_p}_{t}"
-                        # Config des colonnes
+                        start_in = t * 12 + 1
+                        end_in = min((t + 1) * 12, max_in_art)
+                        table_label = f"DEPART {t+1} ( {start_in} --> {end_in} )"
+                        st.subheader(f"📍 {table_label}")
+
+                        # Filtrage de la liste d'inputs pour ce tableau
+                        options_inputs = [f"INPUT {i}" for i in range(start_in, end_in + 1)]
+
+                        # Initialisation spécifique pour ce tableau si inexistant
+                        if table_label not in st.session_state.patch_data[sel_a_p]:
+                            st.session_state.patch_data[sel_a_p][table_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+
+                        # Configuration des colonnes
                         col_cfg = {
-                            "ID": st.column_config.NumberColumn("ID", disabled=True, width="small"),
                             "Box": st.column_config.SelectboxColumn("Box", options=box_opts, required=True),
-                            "Input": st.column_config.SelectboxColumn("Input", options=all_inputs_opt, required=True),
+                            "Input": st.column_config.SelectboxColumn("Input", options=options_inputs, required=True),
                             "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
-                            "Source": st.column_config.TextColumn("Source"),
                             "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
-                            "48V": st.column_config.CheckboxColumn("48V")
+                            "48V": st.column_config.CheckboxColumn("48V", default=False)
                         }
-                        
-                        # Création des lignes si vide pour ce départ
-                        # On filtre le df global pour ce tableau
-                        # (Logique simplifiée pour l'affichage ici)
-                        st.data_editor(current_patch, key=key_ed, use_container_width=True, num_rows="dynamic", column_config=col_cfg, hide_index=True)
+
+                        # Affichage du Data Editor et capture des changements pour persistance
+                        res_ed = st.data_editor(
+                            st.session_state.patch_data[sel_a_p][table_label],
+                            key=f"ed_12n_{sel_a_p}_{t}",
+                            use_container_width=True,
+                            num_rows="dynamic",
+                            column_config=col_cfg,
+                            hide_index=True
+                        )
+                        # On met à jour l'historique immédiatement
+                        st.session_state.patch_data[sel_a_p][table_label] = res_ed
 
                 else: # MODE 20H
                     nb_departs = math.ceil(max_in_art / 20) if max_in_art > 0 else 1
-                    master_name = "MASTER PATCH40" if max_in_art <= 40 else "MASTER PATCH60"
+                    master_label = "MASTER PATCH40" if max_in_art <= 40 else "MASTER PATCH60"
                     box_opts_20h = [f"B20 {i+1}" for i in range(9)]
                     if max_in_art <= 40: box_opts_20h.append("PATCH40")
                     elif max_in_art <= 60: box_opts_20h.append("PATCH60")
 
-                    st.subheader(f"🖥️ {master_name}")
-                    st.data_editor(current_patch, key=f"master_{sel_a_p}", use_container_width=True, num_rows="dynamic", hide_index=True)
+                    # Tableau Master
+                    st.subheader(f"🖥️ {master_label}")
+                    if master_label not in st.session_state.patch_data[sel_a_p]:
+                        st.session_state.patch_data[sel_a_p][master_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                    
+                    st.session_state.patch_data[sel_a_p][master_label] = st.data_editor(
+                        st.session_state.patch_data[sel_a_p][master_label],
+                        key=f"master_{sel_a_p}",
+                        use_container_width=True,
+                        num_rows="dynamic",
+                        hide_index=True,
+                        column_config={
+                            "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h),
+                            "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
+                            "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands)
+                        }
+                    )
 
                     for d in range(nb_departs):
-                        st.subheader(f"📍 DEPART {d+1}")
-                        st.data_editor(current_patch, key=f"depart_20h_{sel_a_p}_{d}", use_container_width=True, num_rows="dynamic", hide_index=True)
+                        start_in = d * 20 + 1
+                        end_in = min((d + 1) * 20, max_in_art)
+                        dep_label = f"DEPART {d+1} ( {start_in} --> {end_in} )"
+                        st.subheader(f"📍 {dep_label}")
+                        
+                        if dep_label not in st.session_state.patch_data[sel_a_p]:
+                            st.session_state.patch_data[sel_a_p][dep_label] = pd.DataFrame(columns=["Box", "Input", "Micro/DI", "Source", "Stand", "48V"])
+                        
+                        opts_in_20 = [f"INPUT {i}" for i in range(start_in, end_in+1)]
+                        st.session_state.patch_data[sel_a_p][dep_label] = st.data_editor(
+                            st.session_state.patch_data[sel_a_p][dep_label],
+                            key=f"dep20h_{sel_a_p}_{d}",
+                            use_container_width=True,
+                            num_rows="dynamic",
+                            hide_index=True,
+                            column_config={
+                                "Box": st.column_config.SelectboxColumn("Box", options=box_opts_20h),
+                                "Input": st.column_config.SelectboxColumn("Input", options=opts_in_20),
+                                "Micro/DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micro_di),
+                                "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands)
+                            }
+                        )
 
-                st.info("💡 Les lignes s'ajoutent via le bouton '+' en bas des tableaux. Les menus déroulants sont filtrés selon votre inventaire matériel.")
+                st.info("💡 Ajoutez des lignes via le '+' en bas de chaque tableau. Les données sont sauvegardées automatiquement dans votre session.")
 
         else:
             st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
