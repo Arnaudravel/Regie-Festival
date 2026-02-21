@@ -6,7 +6,6 @@ import io
 import pickle
 import base64
 import streamlit.components.v1 as components
-import math
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
@@ -33,6 +32,8 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
+if 'patch_data' not in st.session_state:
+    st.session_state.patch_data = {} # Stockage des patchs par artiste
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -45,9 +46,6 @@ if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
-# --- NOUVEAU : VARIABLES POUR LE PATCH IN/OUT ---
-if 'patches_io' not in st.session_state:
-    st.session_state.patches_io = {}
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -82,9 +80,7 @@ class FestivalPDF(FPDF):
     def dessiner_tableau(self, df):
         if df.empty: return
         self.set_font("helvetica", "B", 9)
-        # --- MODIFICATION : MASQUER LA DERNIERE COLONNE DANS LE PDF ---
-        cols = list(df.columns)[:-1] 
-        if not cols: return
+        cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
         self.set_fill_color(220, 230, 255)
@@ -95,7 +91,7 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
-            for item in row.iloc[:-1]: # Masquer la donnée de la dernière colonne
+            for item in row:
                 self.cell(col_width, 6, str(item), border=1, align='C')
             self.ln()
         self.ln(5)
@@ -200,17 +196,7 @@ with main_tabs[0]:
                 st.session_state.planning["Durée Balance"] = ""
             df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
             df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-            
-            # --- MODIFICATION : MASQUER LA DERNIÈRE COLONNE (Streamlit UI) ---
-            edited_df = st.data_editor(
-                df_visu, 
-                use_container_width=True, 
-                num_rows="dynamic", 
-                key="main_editor", 
-                hide_index=True,
-                column_config={df_visu.columns[-1]: None} # Masque la dernière colonne
-            )
-            
+            edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
             if st.session_state.main_editor["deleted_rows"]:
                 st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
                 st.rerun()
@@ -264,10 +250,10 @@ with main_tabs[0]:
                     "fiches_tech": st.session_state.fiches_tech,
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
+                    "patch_data": st.session_state.patch_data,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
-                    "custom_catalog": st.session_state.custom_catalog,
-                    "patches_io": st.session_state.get("patches_io", {})
+                    "custom_catalog": st.session_state.custom_catalog
                 }
                 pickle_out = pickle.dumps(data_to_save)
                 st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
@@ -281,10 +267,10 @@ with main_tabs[0]:
                             st.session_state.fiches_tech = data_loaded["fiches_tech"]
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
+                            st.session_state.patch_data = data_loaded.get("patch_data", {})
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
-                            st.session_state.patches_io = data_loaded.get("patches_io", {})
                             st.success("Session restaurée avec succès !")
                             st.rerun()
                         except Exception as e:
@@ -367,7 +353,6 @@ with main_tabs[0]:
                     
                     dico_besoins = {}
                     
-                    # AJOUT : Circuits spécifiques si filtré par groupe
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                         c = st.session_state.artist_circuits[sel_grp_exp]
                         dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
@@ -452,7 +437,6 @@ with main_tabs[1]:
                             st.markdown(pdf_link, unsafe_allow_html=True)
 
             if sel_a:
-                # --- NOUVELLE SECTION : CIRCUITS (ETAPE 1) ---
                 st.divider()
                 st.subheader(f"⚙️ Configuration des circuits : {sel_a}")
                 if sel_a not in st.session_state.artist_circuits:
@@ -500,7 +484,7 @@ with main_tabs[1]:
                             else:
                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
-                        st.rerun()
+                            st.rerun()
 
                 st.divider()
                 if st.session_state.delete_confirm_patch_idx is not None:
@@ -513,27 +497,13 @@ with main_tabs[1]:
                             st.rerun()
                         if st.button("❌ Annuler"):
                             st.session_state.delete_confirm_patch_idx = None
-                        st.rerun()
+                            st.rerun()
 
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
                     df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                    
-                    # --- MODIFICATIONS : MENUS DÉROULANTS ET COLONNE MASQUÉE ---
-                    edited_patch = st.data_editor(
-                        df_patch_art, 
-                        use_container_width=True, 
-                        num_rows="dynamic", 
-                        key=f"ed_patch_{sel_a}", 
-                        hide_index=True,
-                        column_config={
-                            "Catégorie": st.column_config.SelectboxColumn("Catégorie", options=liste_categories),
-                            "Marque": st.column_config.SelectboxColumn("Marque", options=liste_marques),
-                            df_patch_art.columns[-1]: None # Masque la dernière colonne
-                        }
-                    )
-                    
+                    edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
                     if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                         st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                         st.rerun()
@@ -552,94 +522,160 @@ with main_tabs[1]:
                             if a not in matrice.columns: matrice[a] = 0
                         matrice = matrice[liste_art]
                         res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                        # --- MODIFICATION : FIN DU CODE REPARÉ ET MASQUAGE DERNIERE COLONNE ---
-                        df_res_final = res.reset_index().rename(columns={0: "Total"})
-                        st.dataframe(df_res_final, hide_index=True, column_config={df_res_final.columns[-1]: None})
+                        st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
 
-    # --- SOUS-ONGLET 2 : PATCH IN / OUT (NOUVEAU) ---
+    # --- SOUS-ONGLET 2 : PATCH IN / OUT ---
     with sub_tabs_tech[1]:
-        st.header("🎛️ Gestion des Patchs IN / OUT")
+        st.subheader("📋 Patch IN / OUT")
+        
         if not st.session_state.planning.empty:
-            p1, p2, p3 = st.columns(3)
-            with p1: sel_j_p = st.selectbox("📅 Jour Patch", sorted(st.session_state.planning["Jour"].unique()), key="j_patch")
-            with p2:
+            # 1ère Ligne : Sélection Jour / Scène / Groupe
+            f1_p, f2_p, f3_p = st.columns(3)
+            with f1_p: 
+                sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
+            with f2_p:
                 scenes_p = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_p]["Scène"].unique()
-                sel_s_p = st.selectbox("🏗️ Scène Patch", scenes_p, key="s_patch")
-            with p3:
+                sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
+            with f3_p:
                 artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
-                sel_a_p = st.selectbox("🎸 Groupe Patch", artistes_p, key="a_patch")
+                sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
             if sel_a_p:
-                if sel_a_p not in st.session_state.patches_io:
-                    st.session_state.patches_io[sel_a_p] = {
-                        "MASTER": pd.DataFrame({"Voie": range(1, 61), "Input": [""]*60}),
-                        "DEPART1": pd.DataFrame({"Voie": range(1, 21), "Input": [""]*20}),
-                        "DEPART2": pd.DataFrame({"Voie": range(21, 41), "Input": [""]*20})
-                    }
-
-                max_inputs = int(st.session_state.artist_circuits.get(sel_a_p, {}).get("inputs", 40))
-                patch_size = 60 if max_inputs > 40 else 40
-
-                # Définition des inputs disponibles
-                all_inputs = [f"INPUT {i}" for i in range(1, max_inputs + 1)]
+                # --- LOGIQUE DE CALCUL DU PATCH MAX ---
+                plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
+                liste_art_patch = plan_patch["Artiste"].tolist()
+                def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
                 
-                # Récupération des inputs déjà assignés
-                used_master = st.session_state.patches_io[sel_a_p]["MASTER"]["Input"].tolist()
-                used_dep1 = st.session_state.patches_io[sel_a_p]["DEPART1"]["Input"].tolist()
-                used_dep2 = st.session_state.patches_io[sel_a_p]["DEPART2"]["Input"].tolist()
-                
-                # Logique d'exclusion croisée (menu déroulant dynamique)
-                avail_master = [""] + [i for i in all_inputs if i not in used_dep1 and i not in used_dep2]
-                avail_dep1 = [""] + [i for i in all_inputs if i not in used_master and i not in used_dep2]
-                avail_dep2 = [""] + [i for i in all_inputs if i not in used_master and i not in used_dep1]
+                max_inputs = 0
+                if len(liste_art_patch) == 1:
+                    max_inputs = get_circ(liste_art_patch[0], "inputs")
+                elif len(liste_art_patch) > 1:
+                    for i in range(len(liste_art_patch) - 1):
+                        max_inputs = max(max_inputs, get_circ(liste_art_patch[i], "inputs") + get_circ(liste_art_patch[i+1], "inputs"))
 
+                # --- CONFIGURATION DU MODE PATCH ---
                 st.divider()
+                col_mode1, col_mode2 = st.columns([1, 3])
+                with col_mode1:
+                    mode_patch = st.radio("Saisie :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                 
-                # TABLEAU MASTER PATCH (Pliable/Dépliable)
-                with st.expander(f"🎚️ MASTER PATCH {patch_size}", expanded=True):
-                    df_master = st.session_state.patches_io[sel_a_p]["MASTER"].head(patch_size)
-                    edited_master = st.data_editor(
-                        df_master, 
-                        column_config={
-                            "Input": st.column_config.SelectboxColumn("Sélection Input", options=avail_master),
-                            df_master.columns[-1]: None # Masque la dernière colonne
-                        },
-                        hide_index=True, 
-                        use_container_width=True,
-                        key=f"master_{sel_a_p}"
-                    )
-                    st.session_state.patches_io[sel_a_p]["MASTER"].update(edited_master)
+                # --- DEFINITION DES COULEURS ---
+                color_map = {
+                    1: {"name": "MARRON", "hex": "#8B4513"},
+                    2: {"name": "ROUGE", "hex": "#FF0000"},
+                    3: {"name": "ORANGE", "hex": "#FFA500"},
+                    4: {"name": "JAUNE", "hex": "#FFFF00"},
+                    5: {"name": "VERT", "hex": "#008000"},
+                    6: {"name": "BLEU", "hex": "#0000FF"},
+                    7: {"name": "VIOLET", "hex": "#EE82EE"},
+                    8: {"name": "GRIS", "hex": "#808080"},
+                    9: {"name": "VERT JAUNE", "hex": "#ADFF2F"}
+                }
 
-                # TABLEAUX DEPARTS 1->20 et 21->40
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    with st.expander("📤 DEPART 1 --> 20", expanded=True):
-                        edited_dep1 = st.data_editor(
-                            st.session_state.patches_io[sel_a_p]["DEPART1"],
-                            column_config={
-                                "Input": st.column_config.SelectboxColumn("Sélection Input", options=avail_dep1),
-                                st.session_state.patches_io[sel_a_p]["DEPART1"].columns[-1]: None
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            key=f"dep1_{sel_a_p}"
-                        )
-                        st.session_state.patches_io[sel_a_p]["DEPART1"].update(edited_dep1)
+                # Initialisation des données de l'artiste dans session_state
+                if sel_a_p not in st.session_state.patch_data:
+                    st.session_state.patch_data[sel_a_p] = {}
 
-                with col_d2:
-                    with st.expander("📤 DEPART 21 --> 40", expanded=True):
-                        edited_dep2 = st.data_editor(
-                            st.session_state.patches_io[sel_a_p]["DEPART2"],
-                            column_config={
-                                "Input": st.column_config.SelectboxColumn("Sélection Input", options=avail_dep2),
-                                st.session_state.patches_io[sel_a_p]["DEPART2"].columns[-1]: None
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            key=f"dep2_{sel_a_p}"
-                        )
-                        st.session_state.patches_io[sel_a_p]["DEPART2"].update(edited_dep2)
-                        
-                # Rechargement automatique si un input exclusif est choisi pour mettre à jour les autres tables
-                if not edited_master.equals(df_master) or not edited_dep1.equals(st.session_state.patches_io[sel_a_p]["DEPART1"]) or not edited_dep2.equals(st.session_state.patches_io[sel_a_p]["DEPART2"]):
-                    st.rerun()
+                # --- PREPARATION DES LISTES D'ITEMS ---
+                df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
+                excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
+                liste_micros = [""] + df_mat[~df_mat["Catégorie"].isin(excl_micros)]["Modèle"].unique().tolist()
+                liste_stands = [""] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
+                
+                # Nombre d'inputs total du groupe
+                nb_inputs_groupe = get_circ(sel_a_p, "inputs")
+                options_inputs = [""] + [f"INPUT {i}" for i in range(1, nb_inputs_groupe + 1)]
+
+                # --- GENERATION DES TABLEAUX ---
+                step = 12 if mode_patch == "PATCH 12N" else 20
+                prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
+                num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
+
+                # Si PATCH 20H et besoin de Master Patch
+                if mode_patch == "PATCH 20H":
+                    st.subheader("🛠️ MASTER PATCH")
+                    master_rows = 40 if max_inputs <= 40 else 60
+                    with st.expander(f"MASTER PATCH {master_rows}", expanded=False):
+                        # Logique simplifiée pour l'exemple, peut être étendue
+                        st.info(f"Tableau de configuration Master Patch ({master_rows} lignes)")
+
+                # Suivi des boîtiers utilisés pour l'exclusivité entre tableaux
+                boitiers_utilises_globaux = []
+
+                for t in range(num_tabs):
+                    start_idx = t * step + 1
+                    end_idx = min((t + 1) * step, nb_inputs_groupe)
+                    tab_name = f"DEPART {t+1} ({start_idx} --> {end_idx})"
+                    
+                    with st.expander(tab_name, expanded=True):
+                        # Header du tableau
+                        h1, h2, h3, h4, h5, h6 = st.columns([1.5, 1.2, 2, 2, 1.5, 0.5])
+                        h1.write("**Boîtier**")
+                        h2.write("**Input**")
+                        h3.write("**Micro / DI**")
+                        h4.write("**Source**")
+                        h5.write("**Stand**")
+                        h6.write("**48V**")
+
+                        for row_idx in range(start_idx, end_idx + 1):
+                            row_key = f"row_{sel_a_p}_{row_idx}"
+                            if row_key not in st.session_state.patch_data[sel_a_p]:
+                                st.session_state.patch_data[sel_a_p][row_key] = {"box": "", "input": "", "mic": "", "src": "", "std": "", "48v": False}
+                            
+                            curr_data = st.session_state.patch_data[sel_a_p][row_key]
+                            c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.2, 2, 2, 1.5, 0.5])
+
+                            # 1. Choix du Boîtier
+                            # Liste des boitiers (1-9) - On retire ceux utilisés dans d'autres tableaux
+                            box_options = [""] + [f"{prefix_box} {i}" for i in range(1, 10)]
+                            if mode_patch == "PATCH 20H" and max_inputs <= 60:
+                                box_options += [f"PATCH{40 if max_inputs<=40 else 60}"]
+                            
+                            # Logique d'exclusivité simplifiée : on stocke le choix du premier de chaque tableau
+                            # Ici, on laisse la sélection libre dans le tableau mais on pourrait filtrer.
+                            sel_box = c1.selectbox("Box", box_options, label_visibility="collapsed", key=f"box_{row_key}", 
+                                                   index=box_options.index(curr_data["box"]) if curr_data["box"] in box_options else 0)
+
+                            # 2. Choix Input (Exclusivité : disparaît si sélectionné ailleurs)
+                            inputs_deja_pris = [v["input"] for k, v in st.session_state.patch_data[sel_a_p].items() if v["input"] != "" and k != row_key]
+                            filtered_inputs = [opt for opt in options_inputs if opt not in inputs_deja_pris]
+                            if curr_data["input"] != "" and curr_data["input"] not in filtered_inputs:
+                                filtered_inputs.append(curr_data["input"])
+                            filtered_inputs.sort(key=lambda x: int(x.split()[1]) if x else 0)
+
+                            # Application de la couleur via pastille
+                            pastille_html = ""
+                            if sel_box and any(char.isdigit() for char in sel_box):
+                                digit = int(''.join(filter(str.isdigit, sel_box)))
+                                if digit in color_map:
+                                    pastille_html = f'<span style="color:{color_map[digit]["hex"]}; font-size:20px;">●</span> '
+
+                            c2.markdown(pastille_html, unsafe_allow_html=True)
+                            sel_in = c2.selectbox("In", filtered_inputs, label_visibility="collapsed", key=f"in_{row_key}",
+                                                  index=filtered_inputs.index(curr_data["input"]) if curr_data["input"] in filtered_inputs else 0)
+
+                            # 3. Micro / DI
+                            sel_mic = c3.selectbox("Mic", liste_micros, label_visibility="collapsed", key=f"mic_{row_key}",
+                                                   index=liste_micros.index(curr_data["mic"]) if curr_data["mic"] in liste_micros else 0)
+                            
+                            # 4. Source
+                            sel_src = c4.text_input("Source", value=curr_data["src"], label_visibility="collapsed", key=f"src_{row_key}")
+                            
+                            # 5. Stand
+                            sel_std = c5.selectbox("Std", liste_stands, label_visibility="collapsed", key=f"std_{row_key}",
+                                                   index=liste_stands.index(curr_data["std"]) if curr_data["std"] in liste_stands else 0)
+
+                            # 6. 48V
+                            sel_48 = c6.checkbox("48V", value=curr_data["48v"], key=f"v48_{row_key}", label_visibility="collapsed")
+
+                            # Sauvegarde immédiate
+                            st.session_state.patch_data[sel_a_p][row_key] = {
+                                "box": sel_box, "input": sel_in, "mic": sel_mic, "src": sel_src, "std": sel_std, "48v": sel_48
+                            }
+
+        else:
+            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+
+# --- FOOTER ---
+st.divider()
+st.caption(f"Propulsé par Gemini 3 Flash - {st.session_state.festival_name} © 2026")
