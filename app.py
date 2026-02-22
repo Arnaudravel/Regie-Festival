@@ -96,6 +96,57 @@ class FestivalPDF(FPDF):
             self.ln()
         self.ln(5)
 
+    def dessiner_tableau_patch(self, df):
+        if df.empty: return
+        self.set_font("helvetica", "B", 9)
+        cols = list(df.columns)
+        col_width = (self.w - 20) / len(cols)
+        
+        # En-tête standard
+        self.set_fill_color(220, 230, 255)
+        for col in cols:
+            self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
+        self.ln()
+        
+        self.set_font("helvetica", "", 8)
+        
+        # Couleurs associées aux émojis pour l'export (Teintes claires pour lisibilité)
+        rgb_map = {
+            "🟤": (210, 180, 140), # Marron clair
+            "🔴": (255, 182, 193), # Rouge/Rose clair
+            "🟠": (255, 204, 153), # Orange clair
+            "🟡": (255, 255, 153), # Jaune clair
+            "🟢": (144, 238, 144), # Vert clair
+            "🔵": (173, 216, 230), # Bleu clair
+            "🟣": (221, 160, 221), # Violet clair
+            "⚪": (245, 245, 245), # Gris très clair
+            "🍏": (204, 255, 153)  # Vert pomme clair
+        }
+        
+        for _, row in df.iterrows():
+            if self.get_y() > 270: self.add_page()
+            
+            fill_color = (255, 255, 255)
+            boitier_val = str(row.get("Boîtier", ""))
+            
+            # Recherche de l'émoji dans le texte du boîtier
+            for emoji, rgb in rgb_map.items():
+                if emoji in boitier_val:
+                    fill_color = rgb
+                    break
+            
+            self.set_fill_color(*fill_color)
+            fill_flag = fill_color != (255, 255, 255)
+            
+            for item in row:
+                val = str(item) if pd.notna(item) else ""
+                # Si booléen (pour 48V)
+                if isinstance(item, bool):
+                    val = "Oui" if item else ""
+                self.cell(col_width, 6, val, border=1, align='C', fill=fill_flag)
+            self.ln()
+        self.ln(5)
+
 def generer_pdf_complet(titre_doc, dictionnaire_dfs):
     pdf = FestivalPDF()
     pdf.add_page()
@@ -108,6 +159,21 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_tableau(df)
+    return bytes(pdf.output())
+
+def generer_pdf_patch(titre_doc, dictionnaire_dfs):
+    pdf = FestivalPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, titre_doc, ln=True, align='C')
+    pdf.ln(5)
+    
+    for section, df in dictionnaire_dfs.items():
+        if not df.empty:
+            if pdf.get_y() > 250: pdf.add_page()
+            pdf.ajouter_titre_section(section)
+            # Utilisation de la nouvelle méthode colorée
+            pdf.dessiner_tableau_patch(df)
     return bytes(pdf.output())
 
 # --- INTERFACE PRINCIPALE ---
@@ -224,7 +290,8 @@ with main_tabs[0]:
                     nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
                     if st.button("Enregistrer les nouveaux PDF"):
                         if nouveaux_pdf:
-                            for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
+                            for f in nouveaux_pdf: 
+                                st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
                         st.rerun()
 
     # --- SOUS-ONGLET 2 : ADMIN & SAUVEGARDE ---
@@ -310,8 +377,8 @@ with main_tabs[0]:
         st.header("📄 Génération des Exports PDF")
         l_jours = sorted(st.session_state.planning["Jour"].unique())
         l_scenes = sorted(st.session_state.planning["Scène"].unique())
+        
         cex1, cex2 = st.columns(2)
-
         with cex1:
             st.subheader("🗓️ Export Plannings")
             with st.container(border=True):
@@ -406,6 +473,43 @@ with main_tabs[0]:
                     if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
                     pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                     st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+
+        # NOUVEL ENCART : EXPORT PATCH IN/OUT
+        st.divider()
+        st.subheader("🎛️ Export Patch IN / OUT")
+        with st.container(border=True):
+            if not st.session_state.planning.empty:
+                c_ep1, c_ep2, c_ep3, c_ep4 = st.columns(4)
+                j_ep = c_ep1.selectbox("Jour", l_jours, key="j_ep")
+                s_ep = c_ep2.selectbox("Scène", l_scenes, key="s_ep")
+                arts_ep = st.session_state.planning[(st.session_state.planning["Jour"] == j_ep) & (st.session_state.planning["Scène"] == s_ep)]["Artiste"].unique()
+                
+                if len(arts_ep) > 0:
+                    g_ep = c_ep3.selectbox("Groupe", arts_ep, key="g_ep")
+                    mode_ep = c_ep4.selectbox("Mode", ["12N", "20H"], key="m_ep")
+                    
+                    if g_ep and g_ep in st.session_state.patches_io and st.session_state.patches_io[g_ep].get(mode_ep):
+                        patch_data = st.session_state.patches_io[g_ep].get(mode_ep)
+                        dico_patch = {}
+                        
+                        # Construction du dictionnaire avec les tableaux existants
+                        if "MASTER" in patch_data:
+                            dico_patch["MASTER PATCH"] = patch_data["MASTER"]
+                        for k, v in patch_data.items():
+                            if k.startswith("DEPART"):
+                                dico_patch[k] = v
+                                
+                        if dico_patch:
+                            pdf_bytes_p = generer_pdf_patch(f"PATCH {mode_ep} - {g_ep} ({s_ep})", dico_patch)
+                            st.download_button("📥 Télécharger PDF Patch (Coloré)", pdf_bytes_p, f"patch_{g_ep}_{mode_ep}.pdf", "application/pdf", use_container_width=True)
+                        else:
+                            st.info("Aucun tableau de patch n'est disponible pour cet export.")
+                    else:
+                        st.info(f"Le patch {mode_ep} n'a pas encore été généré/sauvegardé pour le groupe '{g_ep}'. Allez dans l'onglet 'Patch IN / OUT' pour le créer.")
+                else:
+                    st.info("Aucun artiste trouvé pour ce jour et cette scène.")
+            else:
+                st.info("Ajoutez d'abord des artistes dans le planning.")
 
 # ==========================================
 # ONGLET 2 : TECHNIQUE
@@ -593,7 +697,7 @@ with main_tabs[1]:
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
 
                 # ==========================================
-                # PATCH IN / OUT DYNAMIQUE AVEC MEMOIRE ET PASTILLES
+                # PATCH IN / OUT DYNAMIQUE (EPURE)
                 # ==========================================
                 st.divider()
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
@@ -635,7 +739,6 @@ with main_tabs[1]:
                         for i in range(1, num_tabs + 1):
                             tables[f"DEPART_{i}"] = pd.DataFrame({
                                 "Boîtier": [None]*step,
-                                "Pastille": [""]*step,  # Colonne ajoutée pour l'affichage de la couleur
                                 "Input": [None]*step,
                                 "Micro / DI": [None]*step,
                                 "Source": [""]*step,
@@ -707,23 +810,11 @@ with main_tabs[1]:
                         all_depart_inputs = [f"INPUT {j}" for j in range(start_idx, i*step + 1) if j <= nb_inputs_groupe]
                         avail_inputs = [None] + [x for x in all_depart_inputs if x not in used_inputs_master]
 
-                        # --- Calcul dynamique de la pastille de couleur ---
-                        for idx in tables_data[t_name].index:
-                            box_val = tables_data[t_name].at[idx, "Boîtier"]
-                            p_val = ""
-                            if pd.notna(box_val) and isinstance(box_val, str):
-                                for emoji in color_map.values():
-                                    if emoji in box_val:
-                                        p_val = emoji
-                                        break
-                            tables_data[t_name].at[idx, "Pastille"] = p_val
-
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
                             edited_dep = st.data_editor(
                                 tables_data[t_name],
                                 column_config={
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
-                                    "Pastille": st.column_config.TextColumn("🎨", disabled=True),
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
@@ -733,7 +824,6 @@ with main_tabs[1]:
                                 use_container_width=True,
                                 key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
-                            # Si le tableau a été modifié, on sauvegarde et on relance pour calculer la nouvelle pastille ou exclusion
                             if not edited_dep.equals(tables_data[t_name]):
                                 curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
@@ -741,4 +831,3 @@ with main_tabs[1]:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
         else:
             st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
-            
