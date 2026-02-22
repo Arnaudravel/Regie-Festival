@@ -32,6 +32,8 @@ if 'riders_stockage' not in st.session_state:
     st.session_state.riders_stockage = {}
 if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
+if 'patches_io' not in st.session_state:
+    st.session_state.patches_io = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -248,6 +250,7 @@ with main_tabs[0]:
                     "fiches_tech": st.session_state.fiches_tech,
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
+                    "patches_io": st.session_state.patches_io,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog
@@ -264,6 +267,7 @@ with main_tabs[0]:
                             st.session_state.fiches_tech = data_loaded["fiches_tech"]
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
+                            st.session_state.patches_io = data_loaded.get("patches_io", {})
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
@@ -349,7 +353,6 @@ with main_tabs[0]:
                     
                     dico_besoins = {}
                     
-                    # AJOUT : Circuits spécifiques si filtré par groupe
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                         c = st.session_state.artist_circuits[sel_grp_exp]
                         dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
@@ -434,7 +437,6 @@ with main_tabs[1]:
                             st.markdown(pdf_link, unsafe_allow_html=True)
 
             if sel_a:
-                # --- NOUVELLE SECTION : CIRCUITS (ETAPE 1) ---
                 st.divider()
                 st.subheader(f"⚙️ Configuration des circuits : {sel_a}")
                 if sel_a not in st.session_state.artist_circuits:
@@ -495,7 +497,7 @@ with main_tabs[1]:
                             st.rerun()
                         if st.button("❌ Annuler"):
                             st.session_state.delete_confirm_patch_idx = None
-                        st.rerun()
+                            st.rerun()
 
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
@@ -543,7 +545,7 @@ with main_tabs[1]:
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                # Fonction utilitaire pour récupérer une valeur de circuit en gérant les dictionnaires vides
+                # Fonction utilitaire pour récupérer une valeur de circuit
                 def get_circ(art, key):
                     return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
@@ -591,7 +593,7 @@ with main_tabs[1]:
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
 
                 # ==========================================
-                # NOUVEAU CODE : PATCH IN / OUT DYNAMIQUE
+                # PATCH IN / OUT DYNAMIQUE AVEC MEMOIRE ET PASTILLES
                 # ==========================================
                 st.divider()
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
@@ -605,16 +607,25 @@ with main_tabs[1]:
                     prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
                     num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
 
-                    if 'patches_io' not in st.session_state:
-                        st.session_state.patches_io = {}
+                    # Initialisation sécurisée pour chaque groupe
+                    if sel_a_p not in st.session_state.patches_io:
+                        st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
 
-                    # Initialisation sécurisée si le mode ou le nombre d'inputs a changé
-                    curr_state = st.session_state.patches_io.get(sel_a_p, {})
-                    if curr_state.get("mode") != mode_patch or curr_state.get("nb_inputs") != nb_inputs_groupe:
+                    curr_state = st.session_state.patches_io[sel_a_p]
+                    
+                    # Si le nombre d'inputs du groupe a changé depuis la dernière visite, on réinitialise
+                    if curr_state["nb_inputs"] != nb_inputs_groupe:
+                        curr_state["12N"] = None
+                        curr_state["20H"] = None
+                        curr_state["nb_inputs"] = nb_inputs_groupe
+                        
+                    mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
+
+                    # Création des tableaux pour le mode sélectionné s'ils n'existent pas encore
+                    if curr_state[mode_key] is None:
                         tables = {}
                         if mode_patch == "PATCH 20H" and max_inputs <= 60:
                             tables["MASTER"] = pd.DataFrame({
-                                "Voie": range(1, nb_inputs_groupe + 1),
                                 "Input": [None]*nb_inputs_groupe,
                                 "Micro / DI": [None]*nb_inputs_groupe,
                                 "Source": [""]*nb_inputs_groupe,
@@ -622,20 +633,18 @@ with main_tabs[1]:
                                 "48V": [False]*nb_inputs_groupe
                             })
                         for i in range(1, num_tabs + 1):
-                            start_v = (i-1)*step + 1
-                            # Force exactement 'step' lignes par tableau (12 ou 20)
                             tables[f"DEPART_{i}"] = pd.DataFrame({
-                                "Voie": range(start_v, start_v + step),
                                 "Boîtier": [None]*step,
+                                "Pastille": [""]*step,  # Colonne ajoutée pour l'affichage de la couleur
                                 "Input": [None]*step,
                                 "Micro / DI": [None]*step,
                                 "Source": [""]*step,
                                 "Stand": [None]*step,
                                 "48V": [False]*step
                             })
-                        st.session_state.patches_io[sel_a_p] = {"mode": mode_patch, "nb_inputs": nb_inputs_groupe, "tables": tables}
+                        curr_state[mode_key] = tables
 
-                    tables_data = st.session_state.patches_io[sel_a_p]["tables"]
+                    tables_data = curr_state[mode_key]
 
                     # Préparation des listes de matériels (Filtres)
                     df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
@@ -643,11 +652,11 @@ with main_tabs[1]:
                     liste_micros = [None] + df_mat[~df_mat["Catégorie"].isin(excl_micros)]["Modèle"].unique().tolist()
                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
 
-                    # Mapping couleurs pour les boîtiers (utilisation d'emojis nativement gérés par data_editor)
+                    # Mapping couleurs pour les boîtiers
                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
                     all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
 
-                    # Récolte des inputs et boitiers déjà utilisés pour croiser les exclusivités
+                    # Récolte des inputs et boitiers déjà utilisés pour l'exclusivité
                     used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
                     used_inputs_departs = {}
                     used_boxes_departs = {}
@@ -656,7 +665,7 @@ with main_tabs[1]:
                         used_inputs_departs[t_name] = set(tables_data[t_name]["Input"].dropna().tolist())
                         used_boxes_departs[t_name] = set(tables_data[t_name]["Boîtier"].dropna().tolist())
 
-                    # Affichage MASTER PATCH (Sans Boîtier)
+                    # --- Affichage MASTER PATCH ---
                     if "MASTER" in tables_data:
                         label_master = "MASTER PATCH 40" if max_inputs <= 40 else "MASTER PATCH 60"
                         st.subheader(f"🛠️ {label_master}")
@@ -669,7 +678,6 @@ with main_tabs[1]:
                             edited_master = st.data_editor(
                                 tables_data["MASTER"],
                                 column_config={
-                                    "Voie": st.column_config.NumberColumn("Voie", disabled=True),
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_master_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
@@ -677,34 +685,45 @@ with main_tabs[1]:
                                 },
                                 hide_index=True,
                                 use_container_width=True,
-                                key=f"ed_master_{sel_a_p}"
+                                key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
                             if not edited_master.equals(tables_data["MASTER"]):
-                                st.session_state.patches_io[sel_a_p]["tables"]["MASTER"] = edited_master
+                                curr_state[mode_key]["MASTER"] = edited_master
                                 st.rerun()
 
-                    # Affichage DEPARTS
+                    # --- Affichage DEPARTS ---
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         start_idx = (i-1)*step + 1
-                        end_idx = min(i*step, nb_inputs_groupe) # pour le titre uniquement
+                        end_idx = min(i*step, nb_inputs_groupe)
                         
                         st.subheader(f"📤 DEPART {i} ({start_idx} --> {end_idx})")
                         
-                        # Logique d'exclusivité Boîtiers (retire ceux utilisés dans d'autres départs)
+                        # Exclusivité Boîtiers
                         used_in_other_departs = set().union(*[used_boxes_departs[k] for k in used_boxes_departs if k != t_name])
                         avail_boxes = [x for x in all_boxes if x not in used_in_other_departs]
                         
-                        # Logique d'exclusivité Inputs (strictement la plage prévue et absent du Master)
+                        # Exclusivité Inputs
                         all_depart_inputs = [f"INPUT {j}" for j in range(start_idx, i*step + 1) if j <= nb_inputs_groupe]
                         avail_inputs = [None] + [x for x in all_depart_inputs if x not in used_inputs_master]
+
+                        # --- Calcul dynamique de la pastille de couleur ---
+                        for idx in tables_data[t_name].index:
+                            box_val = tables_data[t_name].at[idx, "Boîtier"]
+                            p_val = ""
+                            if pd.notna(box_val) and isinstance(box_val, str):
+                                for emoji in color_map.values():
+                                    if emoji in box_val:
+                                        p_val = emoji
+                                        break
+                            tables_data[t_name].at[idx, "Pastille"] = p_val
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
                             edited_dep = st.data_editor(
                                 tables_data[t_name],
                                 column_config={
-                                    "Voie": st.column_config.NumberColumn("Voie", disabled=True),
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
+                                    "Pastille": st.column_config.TextColumn("🎨", disabled=True),
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
@@ -712,10 +731,11 @@ with main_tabs[1]:
                                 },
                                 hide_index=True,
                                 use_container_width=True,
-                                key=f"ed_{t_name}_{sel_a_p}"
+                                key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
+                            # Si le tableau a été modifié, on sauvegarde et on relance pour calculer la nouvelle pastille ou exclusion
                             if not edited_dep.equals(tables_data[t_name]):
-                                st.session_state.patches_io[sel_a_p]["tables"][t_name] = edited_dep
+                                curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
