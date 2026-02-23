@@ -82,6 +82,13 @@ class FestivalPDF(FPDF):
         self.cell(0, 10, titre, ln=True, fill=True, border="B")
         self.ln(2)
 
+    def dessiner_texte(self, texte):
+        self.set_font("helvetica", "", 10)
+        # Protection basique pour les accents sous FPDF
+        val = str(texte).encode('latin-1', 'replace').decode('latin-1')
+        self.multi_cell(0, 6, val)
+        self.ln(5)
+
     def dessiner_tableau(self, df):
         if df.empty: return
         self.set_font("helvetica", "B", 9)
@@ -170,11 +177,17 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
     pdf.cell(0, 10, titre_doc, ln=True, align='C')
     pdf.ln(5)
     
-    for section, df in dictionnaire_dfs.items():
-        if not df.empty:
+    for section, data in dictionnaire_dfs.items():
+        if isinstance(data, pd.DataFrame):
+            if not data.empty:
+                if pdf.get_y() > 250: pdf.add_page()
+                pdf.ajouter_titre_section(section)
+                pdf.dessiner_tableau(data)
+        elif isinstance(data, str) and data.strip():
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
-            pdf.dessiner_tableau(df)
+            pdf.dessiner_texte(data)
+            
     return pdf.output(dest='S').encode('latin-1')
 
 def generer_pdf_patch(titre_doc, dictionnaire_dfs):
@@ -184,11 +197,17 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
     pdf.cell(0, 10, titre_doc, ln=True, align='C')
     pdf.ln(5)
     
-    for section, df in dictionnaire_dfs.items():
-        if not df.empty:
+    for section, data in dictionnaire_dfs.items():
+        if isinstance(data, pd.DataFrame):
+            if not data.empty:
+                if pdf.get_y() > 250: pdf.add_page()
+                pdf.ajouter_titre_section(section)
+                pdf.dessiner_tableau_patch(data)
+        elif isinstance(data, str) and data.strip():
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
-            pdf.dessiner_tableau_patch(df)
+            pdf.dessiner_texte(data)
+            
     return pdf.output(dest='S').encode('latin-1')
 
 # --- INTERFACE PRINCIPALE ---
@@ -524,16 +543,21 @@ with main_tabs[0]:
                     titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                     if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
                     
-                    # --- Ajout des notes dans l'export Besoins ---
+                    # --- Ajout des notes sous forme de texte brut ---
                     if m_bes == "Par Jour & Scène":
                         arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
                     else:
                         plan_scene = st.session_state.planning[st.session_state.planning["Scène"] == s_s_m]
                         arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
                     
-                    notes_list = [{"Artiste": a, "Informations": st.session_state.notes_artistes[a]} for a in arts_scope if st.session_state.notes_artistes.get(a, "").strip()]
-                    if notes_list:
-                        dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = pd.DataFrame(notes_list)
+                    notes_list_text = []
+                    for a in arts_scope:
+                        n = st.session_state.notes_artistes.get(a, "").strip()
+                        if n:
+                            notes_list_text.append(f"• {a} :\n{n}")
+                    
+                    if notes_list_text:
+                        dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
 
                     pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                     st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
@@ -559,10 +583,12 @@ with main_tabs[0]:
                     s_m_patch = st.selectbox("Format", ["12N", "20H"], key="export_m_patch")
 
                 if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
-                    # Ajout des notes au dessus du patch si existantes
+                    # Ajout des notes au dessus du patch sous forme de texte brut
                     dico_patch = {}
-                    if st.session_state.notes_artistes.get(s_a_patch, "").strip():
-                        dico_patch["--- INFORMATIONS / NOTES ---"] = pd.DataFrame([{"Remarques": st.session_state.notes_artistes[s_a_patch]}])
+                    note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
+                    if note_patch:
+                        dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
+                        
                     dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
                     
                     titre_patch = f"PATCH {s_m_patch} - {s_a_patch} ({s_j_patch} | {s_s_patch})"
