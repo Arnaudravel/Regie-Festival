@@ -54,6 +54,7 @@ class FestivalPDF(FPDF):
             try:
                 import tempfile
                 import os
+                
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
                     tmp_file.write(st.session_state.festival_logo)
                     tmp_path = tmp_file.name
@@ -109,7 +110,7 @@ class FestivalPDF(FPDF):
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
         self.ln()
-        
+    
         self.set_font("helvetica", "", 8)
         
         # Mapping des émojis pastilles vers les couleurs RGB claires pour un bon contraste avec la police noire
@@ -138,6 +139,7 @@ class FestivalPDF(FPDF):
                     if emoji in val:
                         row_color = color
                         val = val.replace(emoji, "").strip()
+            
                 # Sécurisation FPDF
                 val = val.encode('latin-1', 'replace').decode('latin-1')
                 row_texts.append(val)
@@ -160,7 +162,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_tableau(df)
-    return bytes(pdf.output())
+    return pdf.output(dest='S').encode('latin-1')
 
 def generer_pdf_patch(titre_doc, dictionnaire_dfs):
     pdf = FestivalPDF()
@@ -174,7 +176,7 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_tableau_patch(df)
-    return bytes(pdf.output())
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
@@ -853,4 +855,3 @@ with main_tabs[1]:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
         else:
             st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
-
