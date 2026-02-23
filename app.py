@@ -166,7 +166,6 @@ with main_tabs[0]:
                     }])
                     if "Durée Balance" not in st.session_state.planning.columns:
                          st.session_state.planning["Durée Balance"] = ""
-                    
                     st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
                     if ar not in st.session_state.riders_stockage:
                         st.session_state.riders_stockage[ar] = {}
@@ -188,7 +187,6 @@ with main_tabs[0]:
                     if nom_art in st.session_state.riders_stockage: del st.session_state.riders_stockage[nom_art]
                     st.session_state.delete_confirm_idx = None
                     st.rerun()
- 
                 if col_cfg2.button("❌ Annuler", use_container_width=True):
                     st.session_state.delete_confirm_idx = None
                     st.rerun()
@@ -199,11 +197,9 @@ with main_tabs[0]:
             df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
             df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
             edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
-            
             if st.session_state.main_editor["deleted_rows"]:
                 st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
                 st.rerun()
-            
             df_to_save = edited_df.drop(columns=["Rider"])
             if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
                  st.session_state.planning = df_to_save.reset_index(drop=True)
@@ -248,7 +244,6 @@ with main_tabs[0]:
                     st.session_state.festival_logo = new_logo.read()
                     st.success("Logo chargé !")
                 st.info("Ces informations apparaitront sur tous les exports PDF.")
-         
             st.subheader("💾 Sauvegarde Projet")
             with st.container(border=True):
                 data_to_save = {
@@ -265,7 +260,6 @@ with main_tabs[0]:
                 st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
                 st.divider()
                 uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
- 
                 if uploaded_session:
                     if st.button("Restaurer la sauvegarde"):
                         try:
@@ -315,8 +309,8 @@ with main_tabs[0]:
     # --- SOUS-ONGLET 3 : EXPORTS PDF ---
     with sub_tabs_config[2]:
         st.header("📄 Génération des Exports PDF")
-        l_jours = sorted(st.session_state.planning["Jour"].unique()) if not st.session_state.planning.empty else []
-        l_scenes = sorted(st.session_state.planning["Scène"].unique()) if not st.session_state.planning.empty else []
+        l_jours = sorted(st.session_state.planning["Jour"].unique())
+        l_scenes = sorted(st.session_state.planning["Scène"].unique())
         cex1, cex2 = st.columns(2)
 
         with cex1:
@@ -330,7 +324,6 @@ with main_tabs[0]:
                     dico_sections = {}
                     jours_a_traiter = [s_j_p] if m_plan == "Par Jour" else l_jours
                     scenes_a_traiter = [s_s_p] if m_plan == "Par Scène" else l_scenes
-             
                     for j in jours_a_traiter:
                         for s in scenes_a_traiter:
                             sub_df = df_p[(df_p["Jour"] == j) & (df_p["Scène"] == s)].sort_values("Show")
@@ -358,7 +351,7 @@ with main_tabs[0]:
                     df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                     if sel_grp_exp != "Tous":
                         df_base = df_base[df_base["Groupe"] == sel_grp_exp]
-          
+                    
                     dico_besoins = {}
                     
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
@@ -370,10 +363,9 @@ with main_tabs[0]:
 
                     def calcul_pic(df_input, jour, scene):
                         if sel_grp_exp != "Tous":
-                             plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                            plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
                         else:
                             plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
-                        
                         arts = plan["Artiste"].tolist()
                         if not arts or df_input.empty: return pd.DataFrame()
                         mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
@@ -406,6 +398,7 @@ with main_tabs[0]:
                         df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
                     artistes_apporte = df_apporte["Groupe"].unique()
                     if len(artistes_apporte) > 0:
+                        dico_besoins[" "] = pd.DataFrame() 
                         dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
                         for art in artistes_apporte:
                             items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
@@ -474,7 +467,6 @@ with main_tabs[1]:
                         liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER"]
                     v_mar = c_mar.selectbox("Marque", liste_marques)
                     v_mod = ""
-             
                     if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
                         raw_modeles = CATALOGUE[v_cat][v_mar]
                         display_modeles = [f"🔹 {str(m).replace('//','').strip()} 🔹" if str(m).startswith("//") else m for m in raw_modeles]
@@ -500,12 +492,11 @@ with main_tabs[1]:
                     pidx = st.session_state.delete_confirm_patch_idx
                     with st.status("⚠️ Confirmation", expanded=True):
                         st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
-                        col_del1, col_del2 = st.columns(2)
-                        if col_del1.button("✅ Confirmer"):
+                        if st.button("✅ Confirmer"):
                             st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
-                        if col_del2.button("❌ Annuler"):
+                        if st.button("❌ Annuler"):
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
 
@@ -539,6 +530,7 @@ with main_tabs[1]:
         st.subheader("📋 Patch IN / OUT")
         
         if not st.session_state.planning.empty:
+            # 1ère Ligne : Sélection Jour / Scène / Groupe
             f1_p, f2_p, f3_p = st.columns(3)
             with f1_p: 
                 sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
@@ -550,17 +542,21 @@ with main_tabs[1]:
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
             if sel_a_p:
+                # Récupération de tous les artistes du jour sur cette scène triés par heure
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
+                # Fonction utilitaire pour récupérer une valeur de circuit
                 def get_circ(art, key):
                     return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
+                # Initialisation des variables MAX
                 max_inputs = 0
                 max_ear = 0
                 max_mon_s = 0
                 max_mon_m = 0
 
+                # Calcul des MAX consécutifs
                 if len(liste_art_patch) == 1:
                     a1 = liste_art_patch[0]
                     max_inputs = get_circ(a1, "inputs")
@@ -571,27 +567,35 @@ with main_tabs[1]:
                     for i in range(len(liste_art_patch) - 1):
                         a1 = liste_art_patch[i]
                         a2 = liste_art_patch[i+1]
+                        
                         max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
                         max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
                         max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
 
+                # 2ème Ligne : Visualisation PATCH MAX SCENE
                 st.divider()
                 st.subheader(f"🔥 PATCH MAX SCENE (Calcul : Max G1+G2)")
                 col_max1, col_max2, col_max3, col_max4 = st.columns(4)
+                
                 with col_max1: st.metric("Max Circuits Entrées", max_inputs)
                 with col_max2: st.metric("Max EAR Stéréo", max_ear)
                 with col_max3: st.metric("Max MON Stéréo", max_mon_s)
                 with col_max4: st.metric("Max MON Mono", max_mon_m)
 
+                # 3ème Ligne : Besoins du groupe sélectionné
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
                 col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                
                 with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_p, "inputs"))
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
 
+                # ==========================================
+                # PATCH IN / OUT DYNAMIQUE AVEC MEMOIRE ET PASTILLES
+                # ==========================================
                 st.divider()
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
                 
@@ -604,10 +608,13 @@ with main_tabs[1]:
                     prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
                     num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
 
+                    # Initialisation sécurisée pour chaque groupe
                     if sel_a_p not in st.session_state.patches_io:
                         st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
 
                     curr_state = st.session_state.patches_io[sel_a_p]
+                    
+                    # Si le nombre d'inputs du groupe a changé depuis la dernière visite, on réinitialise
                     if curr_state["nb_inputs"] != nb_inputs_groupe:
                         curr_state["12N"] = None
                         curr_state["20H"] = None
@@ -615,6 +622,7 @@ with main_tabs[1]:
                         
                     mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
 
+                    # Création des tableaux pour le mode sélectionné s'ils n'existent pas encore
                     if curr_state[mode_key] is None:
                         tables = {}
                         if mode_patch == "PATCH 20H" and max_inputs <= 60:
@@ -628,7 +636,6 @@ with main_tabs[1]:
                         for i in range(1, num_tabs + 1):
                             tables[f"DEPART_{i}"] = pd.DataFrame({
                                 "Boîtier": [None]*step,
-                                "Pastille": [""]*step,
                                 "Input": [None]*step,
                                 "Micro / DI": [None]*step,
                                 "Source": [""]*step,
@@ -638,29 +645,44 @@ with main_tabs[1]:
                         curr_state[mode_key] = tables
 
                     tables_data = curr_state[mode_key]
+
+                    # Préparation des listes de matériels (Filtres)
                     df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
                     excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
                     liste_micros = [None] + df_mat[~df_mat["Catégorie"].isin(excl_micros)]["Modèle"].unique().tolist()
                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
+
+                    # Mapping couleurs pour les boîtiers
                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
                     all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
 
+                    # Fonction pour nettoyer l'input de ses émojis pastilles (pour l'exclusivité)
+                    def clean_input(val):
+                        if pd.isna(val) or not isinstance(val, str): return val
+                        res = val
+                        for e in color_map.values():
+                            res = res.replace(f" {e}", "").replace(e, "").strip()
+                        return res
+
+                    # Récolte des inputs et boitiers déjà utilisés pour l'exclusivité
                     used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
                     used_inputs_departs = {}
                     used_boxes_departs = {}
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
-                        used_inputs_departs[t_name] = set(tables_data[t_name]["Input"].dropna().tolist())
+                        used_inputs_departs[t_name] = set(clean_input(x) for x in tables_data[t_name]["Input"].dropna().tolist())
                         used_boxes_departs[t_name] = set(tables_data[t_name]["Boîtier"].dropna().tolist())
 
+                    # --- Affichage MASTER PATCH ---
                     if "MASTER" in tables_data:
                         label_master = "MASTER PATCH 40" if max_inputs <= 40 else "MASTER PATCH 60"
                         st.subheader(f"🛠️ {label_master}")
+                        
                         all_master_inputs = [f"INPUT {j}" for j in range(1, nb_inputs_groupe + 1)]
                         used_in_any_depart = set().union(*used_inputs_departs.values()) if used_inputs_departs else set()
                         avail_master_inputs = [None] + [x for x in all_master_inputs if x not in used_in_any_depart]
 
-                        with st.expander(f"{label_master}", expanded=True):
+                        with st.expander(f"{label_master} ({nb_inputs_groupe} Lignes limitées par max circuits entrées)", expanded=True):
                             edited_master = st.data_editor(
                                 tables_data["MASTER"],
                                 column_config={
@@ -677,17 +699,23 @@ with main_tabs[1]:
                                 curr_state[mode_key]["MASTER"] = edited_master
                                 st.rerun()
 
+                    # --- Affichage DEPARTS ---
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         start_idx = (i-1)*step + 1
                         end_idx = min(i*step, nb_inputs_groupe)
+                        
                         st.subheader(f"📤 DEPART {i} ({start_idx} --> {end_idx})")
                         
+                        # Exclusivité Boîtiers
                         used_in_other_departs = set().union(*[used_boxes_departs[k] for k in used_boxes_departs if k != t_name])
                         avail_boxes = [x for x in all_boxes if x not in used_in_other_departs]
+                        
+                        # Exclusivité Inputs purs (sans émoji)
                         all_depart_inputs = [f"INPUT {j}" for j in range(start_idx, i*step + 1) if j <= nb_inputs_groupe]
-                        avail_inputs = [None] + [x for x in all_depart_inputs if x not in used_inputs_master]
+                        avail_inputs_base = [x for x in all_depart_inputs if x not in used_inputs_master]
 
+                        # --- Calcul dynamique de la pastille de couleur et greffe sur l'INPUT ---
                         for idx in tables_data[t_name].index:
                             box_val = tables_data[t_name].at[idx, "Boîtier"]
                             p_val = ""
@@ -696,15 +724,25 @@ with main_tabs[1]:
                                     if emoji in box_val:
                                         p_val = emoji
                                         break
-                            tables_data[t_name].at[idx, "Pastille"] = p_val
+                                        
+                            input_val = tables_data[t_name].at[idx, "Input"]
+                            if pd.notna(input_val) and isinstance(input_val, str):
+                                base_input = clean_input(input_val)
+                                if p_val:
+                                    tables_data[t_name].at[idx, "Input"] = f"{base_input} {p_val}"
+                                else:
+                                    tables_data[t_name].at[idx, "Input"] = base_input
+
+                        # Construction des options pour permettre l'affichage de l'émoji dans le selectbox
+                        current_inputs_in_table = [x for x in tables_data[t_name]["Input"].dropna().unique()]
+                        options_inputs = list(dict.fromkeys([None] + avail_inputs_base + current_inputs_in_table))
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
                             edited_dep = st.data_editor(
                                 tables_data[t_name],
                                 column_config={
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
-                                    "Pastille": st.column_config.TextColumn("🎨", disabled=True),
-                                    "Input": st.column_config.SelectboxColumn("Input", options=avail_inputs),
+                                    "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
                                     "48V": st.column_config.CheckboxColumn("48V")
@@ -713,10 +751,11 @@ with main_tabs[1]:
                                 use_container_width=True,
                                 key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
+                            # Si le tableau a été modifié, on sauvegarde et on relance pour recalculer la nouvelle pastille/exclusion
                             if not edited_dep.equals(tables_data[t_name]):
                                 curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
                 else:
-                    st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste.")
+                    st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
         else:
-            st.info("⚠️ Ajoutez d'abord des artistes dans le planning.")
+            st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
