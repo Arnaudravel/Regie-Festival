@@ -50,6 +50,8 @@ if 'save_path' not in st.session_state:
     st.session_state.save_path = f"backup_festival.pkl"
 if 'notes_artistes' not in st.session_state:
     st.session_state.notes_artistes = {}
+if 'alim_elec' not in st.session_state:
+    st.session_state.alim_elec = pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"])
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -356,7 +358,8 @@ with main_tabs[0]:
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog,
-                    "notes_artistes": st.session_state.notes_artistes
+                    "notes_artistes": st.session_state.notes_artistes,
+                    "alim_elec": st.session_state.alim_elec
                 }
                 
                 path_input = st.text_input("📍 Chemin / Nom du fichier de sauvegarde (.pkl)", value=st.session_state.save_path)
@@ -405,6 +408,7 @@ with main_tabs[0]:
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
                             st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
+                            st.session_state.alim_elec = data_loaded.get("alim_elec", pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"]))
                             st.success("Session restaurée avec succès !")
                             st.rerun()
                         except Exception as e:
@@ -491,6 +495,17 @@ with main_tabs[0]:
                         
                         dico_besoins = {}
                         
+                        if sel_grp_exp != "Tous":
+                            df_alim_besoin = st.session_state.alim_elec[
+                                (st.session_state.alim_elec["Groupe"] == sel_grp_exp) & 
+                                (st.session_state.alim_elec["Scène"] == s_s_m)
+                            ]
+                            if m_bes == "Par Jour & Scène":
+                                df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"] == s_j_m]
+                            
+                            if not df_alim_besoin.empty:
+                                dico_besoins["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_besoin[["Format", "Métier", "Emplacement"]]
+
                         if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                             c = st.session_state.artist_circuits[sel_grp_exp]
                             q_in = c.get("inputs", 0)
@@ -651,11 +666,21 @@ with main_tabs[0]:
                     s_m_patch = st.selectbox("Format", ["12N", "20H"], key="export_m_patch")
 
                 if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
-                    # Ajout des notes au dessus du patch sous forme de texte brut
                     dico_patch = {}
+                    
                     note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
                     if note_patch:
                         dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
+                    
+                    # Ajout de l'alimentation électrique si présente
+                    df_alim_patch = st.session_state.alim_elec[
+                        (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
+                        (st.session_state.alim_elec["Scène"] == s_s_patch) & 
+                        (st.session_state.alim_elec["Jour"] == s_j_patch)
+                    ][["Format", "Métier", "Emplacement"]]
+                    
+                    if not df_alim_patch.empty:
+                        dico_patch["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_patch
                         
                     dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
                     
@@ -710,6 +735,44 @@ with main_tabs[1]:
                 with c_circ4:
                     st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // circuits mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
 
+                # --- NOUVELLE ZONE : ALIMENTATION ELECTRIQUE ---
+                st.divider()
+                st.subheader(f"⚡ Alimentation électrique : {sel_a}")
+                df_alim_art = st.session_state.alim_elec[
+                    (st.session_state.alim_elec["Groupe"] == sel_a) &
+                    (st.session_state.alim_elec["Scène"] == sel_s) &
+                    (st.session_state.alim_elec["Jour"] == sel_j)
+                ]
+                
+                edited_alim = st.data_editor(
+                    df_alim_art[["Format", "Métier", "Emplacement"]],
+                    column_config={
+                        "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
+                        "Métier": st.column_config.SelectboxColumn("Métier", options=["SON", "BACKLINE", "LUMIERE", "VIDEO", "STRUCTURE", "TOURBUS"], required=True),
+                        "Emplacement": st.column_config.SelectboxColumn("Emplacement", options=["FOH", "JARDIN", "COUR", "LOINTAIN"], required=True)
+                    },
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
+                )
+                
+                if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
+                    # On retire les anciennes entrées de cet artiste
+                    st.session_state.alim_elec = st.session_state.alim_elec[
+                        ~((st.session_state.alim_elec["Groupe"] == sel_a) &
+                          (st.session_state.alim_elec["Scène"] == sel_s) &
+                          (st.session_state.alim_elec["Jour"] == sel_j))
+                    ]
+                    # On ajoute les nouvelles
+                    if not edited_alim.empty:
+                        new_alim = edited_alim.copy()
+                        new_alim["Groupe"] = sel_a
+                        new_alim["Scène"] = sel_s
+                        new_alim["Jour"] = sel_j
+                        st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
+                    st.rerun()
+
                 st.divider()
                 st.subheader(f"📥 Saisie Matériel : {sel_a}")
                 with st.container(border=True):
@@ -757,7 +820,7 @@ with main_tabs[1]:
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
                             
-                # --- NOUVELLE ZONE SAISIE LIBRE ---
+                # --- ZONE SAISIE LIBRE ---
                 st.subheader(f"📝 Informations complémentaires / Matériel apporté : {sel_a}")
                 note_val = st.session_state.notes_artistes.get(sel_a, "")
                 new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
