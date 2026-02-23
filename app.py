@@ -489,10 +489,18 @@ with main_tabs[0]:
                     
                     if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                         c = st.session_state.artist_circuits[sel_grp_exp]
-                        dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
-                            "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
-                            "Quantité": [c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)]
-                        })
+                        q_in = c.get("inputs", 0)
+                        q_ear = c.get("ear_stereo", 0)
+                        q_ms = c.get("mon_stereo", 0)
+                        q_mm = c.get("mon_mono", 0)
+                        
+                        if q_in == 0 and q_ear == 0 and q_ms == 0 and q_mm == 0:
+                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = "Non renseigné"
+                        else:
+                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
+                                "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
+                                "Quantité": [q_in, q_ear, q_ms, q_mm]
+                            })
 
                     def calcul_pic(df_input, jour, scene):
                         if sel_grp_exp != "Tous":
@@ -554,7 +562,7 @@ with main_tabs[0]:
                     for a in arts_scope:
                         n = st.session_state.notes_artistes.get(a, "").strip()
                         if n:
-                            notes_list_text.append(f"• {a} :\n{n}")
+                            notes_list_text.append(f"- {a} :\n{n}")
                     
                     if notes_list_text:
                         dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
