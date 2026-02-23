@@ -134,7 +134,16 @@ class FestivalPDF(FPDF):
             
             # 1er passage : trouver la couleur et nettoyer la chaine des émojis (pour compatibilité FPDF)
             for item in row:
-                val = str(item) if pd.notna(item) else ""
+                # Traitement spécial pour transformer les True/False en cases à cocher type texte
+                if isinstance(item, bool):
+                    val = "[ X ]" if item else "[   ]"
+                elif str(item).strip() == "True":
+                    val = "[ X ]"
+                elif str(item).strip() == "False":
+                    val = "[   ]"
+                else:
+                    val = str(item) if pd.notna(item) else ""
+
                 for emoji, color in EMOJI_COLORS.items():
                     if emoji in val:
                         row_color = color
@@ -440,7 +449,10 @@ with main_tabs[0]:
                         for a in arts: 
                             if a not in mat.columns: mat[a] = 0
                         res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                        return res.reset_index().rename(columns={0: "Total"})
+                        # Correction : On renomme proprement la dernière colonne en "Total"
+                        df_res = res.reset_index()
+                        df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                        return df_res
 
                     if m_bes == "Par Jour & Scène":
                         data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
@@ -619,7 +631,10 @@ with main_tabs[1]:
                             if a not in matrice.columns: matrice[a] = 0
                         matrice = matrice[liste_art]
                         res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                        st.dataframe(res.reset_index().rename(columns={0: "Total"}), use_container_width=True, hide_index=True)
+                        # Correction : On renomme proprement la dernière colonne en "Total"
+                        df_res = res.reset_index()
+                        df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                        st.dataframe(df_res, use_container_width=True, hide_index=True)
 
     # --- SOUS-ONGLET 2 : PATCH IN / OUT ---
     with sub_tabs_tech[1]:
