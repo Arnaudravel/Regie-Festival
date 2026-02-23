@@ -480,95 +480,155 @@ with main_tabs[0]:
                     arts_du_jour = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_m) & (st.session_state.planning["Scène"] == s_s_m)]["Artiste"].unique()
                     sel_grp_exp = st.selectbox("Filtrer par Groupe (Optionnel)", ["Tous"] + list(arts_du_jour))
                 
-                if st.button("Générer PDF Besoins", use_container_width=True):
-                    df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-                    if sel_grp_exp != "Tous":
-                        df_base = df_base[df_base["Groupe"] == sel_grp_exp]
-                    
-                    dico_besoins = {}
-                    
-                    if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
-                        c = st.session_state.artist_circuits[sel_grp_exp]
-                        q_in = c.get("inputs", 0)
-                        q_ear = c.get("ear_stereo", 0)
-                        q_ms = c.get("mon_stereo", 0)
-                        q_mm = c.get("mon_mono", 0)
-                        
-                        if q_in == 0 and q_ear == 0 and q_ms == 0 and q_mm == 0:
-                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = "Non renseigné"
-                        else:
-                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
-                                "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
-                                "Quantité": [q_in, q_ear, q_ms, q_mm]
-                            })
-
-                    def calcul_pic(df_input, jour, scene):
+                col_btn_pdf, col_btn_ej = st.columns(2)
+                
+                # BOUTON EXPORT PDF
+                with col_btn_pdf:
+                    if st.button("Générer PDF Besoins", use_container_width=True):
+                        df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous":
-                            plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                            df_base = df_base[df_base["Groupe"] == sel_grp_exp]
+                        
+                        dico_besoins = {}
+                        
+                        if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
+                            c = st.session_state.artist_circuits[sel_grp_exp]
+                            q_in = c.get("inputs", 0)
+                            q_ear = c.get("ear_stereo", 0)
+                            q_ms = c.get("mon_stereo", 0)
+                            q_mm = c.get("mon_mono", 0)
+                            
+                            if q_in == 0 and q_ear == 0 and q_ms == 0 and q_mm == 0:
+                                dico_besoins["--- CONFIGURATION CIRCUITS ---"] = "Non renseigné"
+                            else:
+                                dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
+                                    "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
+                                    "Quantité": [q_in, q_ear, q_ms, q_mm]
+                                })
+
+                        def calcul_pic(df_input, jour, scene):
+                            if sel_grp_exp != "Tous":
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                            else:
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                            arts = plan["Artiste"].tolist()
+                            if not arts or df_input.empty: return pd.DataFrame()
+                            mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                            for a in arts: 
+                                if a not in mat.columns: mat[a] = 0
+                            res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                            # Correction : On renomme proprement la dernière colonne en "Total"
+                            df_res = res.reset_index()
+                            df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                            return df_res
+
+                        if m_bes == "Par Jour & Scène":
+                            data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
+                            if not data_pic.empty:
+                                for cat in data_pic["Catégorie"].unique():
+                                    cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
+                                    dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
                         else:
-                            plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
-                        arts = plan["Artiste"].tolist()
-                        if not arts or df_input.empty: return pd.DataFrame()
-                        mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                        for a in arts: 
-                            if a not in mat.columns: mat[a] = 0
-                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                        # Correction : On renomme proprement la dernière colonne en "Total"
-                        df_res = res.reset_index()
-                        df_res.columns = list(df_res.columns[:-1]) + ["Total"]
-                        return df_res
+                            all_days_res = []
+                            for j in df_base["Jour"].unique():
+                                res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                            if all_days_res:
+                                final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                                for cat in final["Catégorie"].unique():
+                                    cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
+                                    dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
-                    if m_bes == "Par Jour & Scène":
-                        data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
-                        if not data_pic.empty:
-                            for cat in data_pic["Catégorie"].unique():
-                                cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
-                                dico_besoins[f"CATEGORIE : {cat}"] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
-                    else:
-                        all_days_res = []
-                        for j in df_base["Jour"].unique():
-                            res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                            if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
-                        if all_days_res:
-                            final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
-                            for cat in final["Catégorie"].unique():
-                                cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
-                                dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
+                        df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
+                        if m_bes == "Par Jour & Scène":
+                            df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
+                        if sel_grp_exp != "Tous":
+                            df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
+                        artistes_apporte = df_apporte["Groupe"].unique()
+                        if len(artistes_apporte) > 0:
+                            dico_besoins[" "] = pd.DataFrame() 
+                            dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
+                            for art in artistes_apporte:
+                                items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
+                                dico_besoins[f"FOURNI PAR : {art}"] = items_art
+                        
+                        titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
+                        if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
+                        
+                        # --- Ajout des notes sous forme de texte brut ---
+                        if m_bes == "Par Jour & Scène":
+                            arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
+                        else:
+                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"] == s_s_m]
+                            arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
+                        
+                        notes_list_text = []
+                        for a in arts_scope:
+                            n = st.session_state.notes_artistes.get(a, "").strip()
+                            if n:
+                                notes_list_text.append(f"- {a} :\n{n}")
+                        
+                        if notes_list_text:
+                            dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
 
-                    df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
-                    if m_bes == "Par Jour & Scène":
-                        df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
-                    if sel_grp_exp != "Tous":
-                        df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
-                    artistes_apporte = df_apporte["Groupe"].unique()
-                    if len(artistes_apporte) > 0:
-                        dico_besoins[" "] = pd.DataFrame() 
-                        dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
-                        for art in artistes_apporte:
-                            items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
-                            dico_besoins[f"FOURNI PAR : {art}"] = items_art
-                    
-                    titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
-                    if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
-                    
-                    # --- Ajout des notes sous forme de texte brut ---
-                    if m_bes == "Par Jour & Scène":
-                        arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
-                    else:
-                        plan_scene = st.session_state.planning[st.session_state.planning["Scène"] == s_s_m]
-                        arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
-                    
-                    notes_list_text = []
-                    for a in arts_scope:
-                        n = st.session_state.notes_artistes.get(a, "").strip()
-                        if n:
-                            notes_list_text.append(f"- {a} :\n{n}")
-                    
-                    if notes_list_text:
-                        dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
+                        pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
+                        st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
 
-                    pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
-                    st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+                # BOUTON EXPORT EASYJOB
+                with col_btn_ej:
+                    if st.button("Export Easyjob", use_container_width=True):
+                        # On récupère la base sans le matériel apporté par l'artiste (comme pour le PDF)
+                        df_base_ej = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                        if sel_grp_exp != "Tous":
+                            df_base_ej = df_base_ej[df_base_ej["Groupe"] == sel_grp_exp]
+
+                        def calcul_pic_ej(df_input, jour, scene):
+                            if sel_grp_exp != "Tous":
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)].sort_values("Show")
+                            else:
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)].sort_values("Show")
+                            arts = plan["Artiste"].tolist()
+                            if not arts or df_input.empty: return pd.DataFrame()
+                            mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                            for a in arts: 
+                                if a not in mat.columns: mat[a] = 0
+                            res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                            df_res = res.reset_index()
+                            df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                            return df_res
+
+                        export_data = []
+
+                        if m_bes == "Par Jour & Scène":
+                            data_pic = calcul_pic_ej(df_base_ej[df_base_ej["Jour"] == s_j_m], s_j_m, s_s_m)
+                            if not data_pic.empty:
+                                for _, row in data_pic.iterrows():
+                                    qty = row["Total"]
+                                    if qty > 0:
+                                        item_name = f"{row['Marque']} {row['Modèle']}".strip()
+                                        export_data.append({"Quantity": qty, "Items": item_name})
+                        else:
+                            all_days_res = []
+                            for j in df_base_ej["Jour"].unique():
+                                res_j = calcul_pic_ej(df_base_ej[df_base_ej["Jour"] == j], j, s_s_m)
+                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                            if all_days_res:
+                                final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                                for _, row in final.iterrows():
+                                    qty = row["Max_Periode"]
+                                    if qty > 0:
+                                        item_name = f"{row['Marque']} {row['Modèle']}".strip()
+                                        export_data.append({"Quantity": qty, "Items": item_name})
+                        
+                        df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
+                        
+                        # Génération du fichier Excel en mémoire
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output) as writer:
+                            df_export.to_excel(writer, index=False, sheet_name='Easyjob')
+                        excel_data = output.getvalue()
+                        
+                        st.download_button("📥 Télécharger Excel", excel_data, "easyjob_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         # --- NOUVELLE SECTION EXPORT PATCH IN/OUT ---
         st.divider()
