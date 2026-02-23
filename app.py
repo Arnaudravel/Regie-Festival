@@ -46,6 +46,10 @@ if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
+if 'save_path' not in st.session_state:
+    st.session_state.save_path = f"backup_festival.pkl"
+if 'notes_artistes' not in st.session_state:
+    st.session_state.notes_artistes = {}
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -93,8 +97,8 @@ class FestivalPDF(FPDF):
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
             for item in row:
-                # Protection basique pour les accents sous FPDF
-                val = str(item).encode('latin-1', 'replace').decode('latin-1')
+                # Protection basique pour les accents sous FPDF + nettoyage sauts de ligne
+                val = str(item).replace('\n', ' | ').encode('latin-1', 'replace').decode('latin-1')
                 self.cell(col_width, 6, val, border=1, align='C')
             self.ln()
         self.ln(5)
@@ -149,8 +153,8 @@ class FestivalPDF(FPDF):
                         row_color = color
                         val = val.replace(emoji, "").strip()
             
-                # Sécurisation FPDF
-                val = val.encode('latin-1', 'replace').decode('latin-1')
+                # Sécurisation FPDF + nettoyage sauts de ligne
+                val = val.replace('\n', ' | ').encode('latin-1', 'replace').decode('latin-1')
                 row_texts.append(val)
             
             self.set_fill_color(*row_color)
@@ -321,6 +325,7 @@ with main_tabs[0]:
                     st.session_state.festival_logo = new_logo.read()
                     st.success("Logo chargé !")
                 st.info("Ces informations apparaitront sur tous les exports PDF.")
+            
             st.subheader("💾 Sauvegarde Projet")
             with st.container(border=True):
                 data_to_save = {
@@ -331,10 +336,41 @@ with main_tabs[0]:
                     "patches_io": st.session_state.patches_io,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
-                    "custom_catalog": st.session_state.custom_catalog
+                    "custom_catalog": st.session_state.custom_catalog,
+                    "notes_artistes": st.session_state.notes_artistes
                 }
-                pickle_out = pickle.dumps(data_to_save)
-                st.download_button("💾 Sauvegarder ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl")
+                
+                path_input = st.text_input("📍 Chemin / Nom du fichier de sauvegarde (.pkl)", value=st.session_state.save_path)
+                
+                c_sv1, c_sv2 = st.columns(2)
+                with c_sv1:
+                    if st.button("💾 Save (Écraser)", use_container_width=True):
+                        try:
+                            with open(st.session_state.save_path, "wb") as f:
+                                pickle.dump(data_to_save, f)
+                            st.success(f"✅ Sauvegardé avec succès dans : {st.session_state.save_path}")
+                        except Exception as e:
+                            st.error(f"Erreur d'écriture : {e}")
+                
+                with c_sv2:
+                    if st.button("💾 Save As... (Enregistrer sous)", use_container_width=True):
+                        if path_input:
+                            try:
+                                with open(path_input, "wb") as f:
+                                    pickle.dump(data_to_save, f)
+                                st.session_state.save_path = path_input
+                                st.success(f"✅ Nouveau fichier sauvegardé sous : {path_input}")
+                            except Exception as e:
+                                st.error(f"Erreur d'écriture : {e}")
+                        else:
+                            st.warning("Précisez un nom ou un chemin de fichier.")
+
+                st.caption("ℹ️ *Note : L'enregistrement direct crée le fichier directement sur la machine hébergeant l'application.*")
+                
+                with st.expander("Alternative Web (Téléchargement classique)"):
+                    pickle_out = pickle.dumps(data_to_save)
+                    st.download_button("📥 Télécharger ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl", use_container_width=True)
+
                 st.divider()
                 uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
                 if uploaded_session:
@@ -349,6 +385,7 @@ with main_tabs[0]:
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                            st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
                             st.success("Session restaurée avec succès !")
                             st.rerun()
                         except Exception as e:
@@ -483,8 +520,21 @@ with main_tabs[0]:
                         for art in artistes_apporte:
                             items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
                             dico_besoins[f"FOURNI PAR : {art}"] = items_art
+                    
                     titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                     if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
+                    
+                    # --- Ajout des notes dans l'export Besoins ---
+                    if m_bes == "Par Jour & Scène":
+                        arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
+                    else:
+                        plan_scene = st.session_state.planning[st.session_state.planning["Scène"] == s_s_m]
+                        arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
+                    
+                    notes_list = [{"Artiste": a, "Informations": st.session_state.notes_artistes[a]} for a in arts_scope if st.session_state.notes_artistes.get(a, "").strip()]
+                    if notes_list:
+                        dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = pd.DataFrame(notes_list)
+
                     pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                     st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
 
@@ -509,7 +559,12 @@ with main_tabs[0]:
                     s_m_patch = st.selectbox("Format", ["12N", "20H"], key="export_m_patch")
 
                 if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
-                    dico_patch = st.session_state.patches_io[s_a_patch][s_m_patch]
+                    # Ajout des notes au dessus du patch si existantes
+                    dico_patch = {}
+                    if st.session_state.notes_artistes.get(s_a_patch, "").strip():
+                        dico_patch["--- INFORMATIONS / NOTES ---"] = pd.DataFrame([{"Remarques": st.session_state.notes_artistes[s_a_patch]}])
+                    dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
+                    
                     titre_patch = f"PATCH {s_m_patch} - {s_a_patch} ({s_j_patch} | {s_s_patch})"
                     pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
                     st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_m_patch}_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
@@ -607,6 +662,16 @@ with main_tabs[1]:
                         if st.button("❌ Annuler"):
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
+                            
+                # --- NOUVELLE ZONE SAISIE LIBRE ---
+                st.subheader(f"📝 Informations complémentaires / Matériel apporté : {sel_a}")
+                note_val = st.session_state.notes_artistes.get(sel_a, "")
+                new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
+                if new_note != note_val:
+                    st.session_state.notes_artistes[sel_a] = new_note
+                    st.rerun()
+
+                st.divider()
 
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
