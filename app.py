@@ -92,7 +92,59 @@ class FestivalPDF(FPDF):
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
             for item in row:
-                self.cell(col_width, 6, str(item), border=1, align='C')
+                # Protection basique pour les accents sous FPDF
+                val = str(item).encode('latin-1', 'replace').decode('latin-1')
+                self.cell(col_width, 6, val, border=1, align='C')
+            self.ln()
+        self.ln(5)
+
+    def dessiner_tableau_patch(self, df):
+        if df.empty: return
+        self.set_font("helvetica", "B", 9)
+        cols = list(df.columns)
+        col_width = (self.w - 20) / len(cols)
+        
+        # Entête standard
+        self.set_fill_color(220, 230, 255)
+        for col in cols:
+            self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
+        self.ln()
+        
+        self.set_font("helvetica", "", 8)
+        
+        # Mapping des émojis pastilles vers les couleurs RGB claires pour un bon contraste avec la police noire
+        EMOJI_COLORS = {
+            "🟤": (205, 133, 63),   # Marron / Peru
+            "🔴": (255, 153, 153),  # Rouge clair
+            "🟠": (255, 204, 153),  # Orange clair
+            "🟡": (255, 255, 153),  # Jaune clair
+            "🟢": (153, 255, 153),  # Vert clair
+            "🔵": (153, 204, 255),  # Bleu clair
+            "🟣": (204, 153, 255),  # Violet clair
+            "⚪": (240, 240, 240),  # Gris très clair (Blanc)
+            "🍏": (204, 255, 153)   # Vert pomme clair
+        }
+
+        for _, row in df.iterrows():
+            if self.get_y() > 270: self.add_page()
+            
+            row_color = (255, 255, 255) # Blanc par défaut
+            row_texts = []
+            
+            # 1er passage : trouver la couleur et nettoyer la chaine des émojis (pour compatibilité FPDF)
+            for item in row:
+                val = str(item) if pd.notna(item) else ""
+                for emoji, color in EMOJI_COLORS.items():
+                    if emoji in val:
+                        row_color = color
+                        val = val.replace(emoji, "").strip()
+                # Sécurisation FPDF
+                val = val.encode('latin-1', 'replace').decode('latin-1')
+                row_texts.append(val)
+            
+            self.set_fill_color(*row_color)
+            for val in row_texts:
+                self.cell(col_width, 6, val, border=1, align='C', fill=True)
             self.ln()
         self.ln(5)
 
@@ -108,6 +160,20 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs):
             if pdf.get_y() > 250: pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_tableau(df)
+    return bytes(pdf.output())
+
+def generer_pdf_patch(titre_doc, dictionnaire_dfs):
+    pdf = FestivalPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, titre_doc, ln=True, align='C')
+    pdf.ln(5)
+    
+    for section, df in dictionnaire_dfs.items():
+        if not df.empty:
+            if pdf.get_y() > 250: pdf.add_page()
+            pdf.ajouter_titre_section(section)
+            pdf.dessiner_tableau_patch(df)
     return bytes(pdf.output())
 
 # --- INTERFACE PRINCIPALE ---
@@ -407,6 +473,34 @@ with main_tabs[0]:
                     if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
                     pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
                     st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
+
+        # --- NOUVELLE SECTION EXPORT PATCH IN/OUT ---
+        st.divider()
+        st.subheader("🎛️ Export Patch IN / OUT")
+        with st.container(border=True):
+            if st.session_state.planning.empty:
+                st.info("Aucun artiste dans le planning pour générer un patch.")
+            else:
+                col_ep1, col_ep2, col_ep3, col_ep4 = st.columns(4)
+                with col_ep1:
+                    l_jours_p = sorted(st.session_state.planning["Jour"].unique())
+                    s_j_patch = st.selectbox("Jour (Patch)", l_jours_p, key="export_j_patch")
+                with col_ep2:
+                    scenes_jour = st.session_state.planning[st.session_state.planning["Jour"] == s_j_patch]["Scène"].unique()
+                    s_s_patch = st.selectbox("Scène (Patch)", scenes_jour, key="export_s_patch")
+                with col_ep3:
+                    artistes_patch = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_patch) & (st.session_state.planning["Scène"] == s_s_patch)]["Artiste"].unique()
+                    s_a_patch = st.selectbox("Groupe (Patch)", artistes_patch, key="export_a_patch")
+                with col_ep4:
+                    s_m_patch = st.selectbox("Format", ["12N", "20H"], key="export_m_patch")
+
+                if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
+                    dico_patch = st.session_state.patches_io[s_a_patch][s_m_patch]
+                    titre_patch = f"PATCH {s_m_patch} - {s_a_patch} ({s_j_patch} | {s_s_patch})"
+                    pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
+                    st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_m_patch}_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
+                else:
+                    st.info(f"ℹ️ Aucun Patch {s_m_patch} encodé pour {s_a_patch}. Veuillez le créer dans l'onglet Technique.")
 
 # ==========================================
 # ONGLET 2 : TECHNIQUE
