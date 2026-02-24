@@ -46,6 +46,8 @@ if 'festival_logo' not in st.session_state:
     st.session_state.festival_logo = None
 if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
+if 'easyjob_mapping' not in st.session_state:
+    st.session_state.easyjob_mapping = {}
 if 'save_path' not in st.session_state:
     st.session_state.save_path = f"backup_festival.pkl"
 if 'notes_artistes' not in st.session_state:
@@ -96,7 +98,7 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
-        
+    
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -107,7 +109,7 @@ class FestivalPDF(FPDF):
             if self.get_y() > 270: self.add_page()
             for item in row:
                 # Protection basique pour les accents sous FPDF + nettoyage sauts de ligne
-                val = str(item).replace('\n', ' | ').encode('latin-1', 'replace').decode('latin-1')
+                val = str(item).replace('\n', ' ').encode('latin-1', 'replace').decode('latin-1')
                 self.cell(col_width, 6, val, border=1, align='C')
             self.ln()
         self.ln(5)
@@ -163,7 +165,7 @@ class FestivalPDF(FPDF):
                         val = val.replace(emoji, "").strip()
             
                 # Sécurisation FPDF + nettoyage sauts de ligne
-                val = val.replace('\n', ' | ').encode('latin-1', 'replace').decode('latin-1')
+                val = val.replace('\n', ' ').encode('latin-1', 'replace').decode('latin-1')
                 row_texts.append(val)
             
             self.set_fill_color(*row_color)
@@ -267,7 +269,7 @@ with main_tabs[0]:
                         "Show": sh.strftime("%H:%M")
                     }])
                     if "Durée Balance" not in st.session_state.planning.columns:
-                         st.session_state.planning["Durée Balance"] = ""
+                        st.session_state.planning["Durée Balance"] = ""
                     st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
                     if ar not in st.session_state.riders_stockage:
                         st.session_state.riders_stockage[ar] = {}
@@ -358,6 +360,7 @@ with main_tabs[0]:
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog,
+                    "easyjob_mapping": st.session_state.easyjob_mapping,
                     "notes_artistes": st.session_state.notes_artistes,
                     "alim_elec": st.session_state.alim_elec
                 }
@@ -407,6 +410,7 @@ with main_tabs[0]:
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                            st.session_state.easyjob_mapping = data_loaded.get("easyjob_mapping", {})
                             st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
                             st.session_state.alim_elec = data_loaded.get("alim_elec", pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"]))
                             st.success("Session restaurée avec succès !")
@@ -424,21 +428,45 @@ with main_tabs[0]:
                             try:
                                 xls = pd.ExcelFile(xls_file)
                                 new_catalog = {}
+                                new_mapping = {}
+                                
                                 for sheet in xls.sheet_names:
                                     df = pd.read_excel(xls, sheet_name=sheet)
-                                    brands = df.columns.tolist()
                                     new_catalog[sheet] = {}
-                                    for brand in brands:
+                                    new_mapping[sheet] = {}
+                                    
+                                    # On filtre les colonnes normales (qui ne finissent pas par _EASYJOB)
+                                    marques_normales = [col for col in df.columns if not str(col).endswith("_EASYJOB")]
+                                    
+                                    for brand in marques_normales:
                                         modeles = df[brand].dropna().astype(str).tolist()
+                                        col_miroir = f"{brand}_EASYJOB"
+                                        
                                         if modeles:
                                             new_catalog[sheet][brand] = modeles
+                                            new_mapping[sheet][brand] = {}
+                                            
+                                            # Si la colonne miroir existe, on mappe chaque modèle avec sa ref EasyJob
+                                            if col_miroir in df.columns:
+                                                modeles_miroirs = df[col_miroir].astype(str).tolist()
+                                                for i, mod in enumerate(modeles):
+                                                    if i < len(modeles_miroirs) and modeles_miroirs[i] != 'nan' and str(modeles_miroirs[i]).strip() != '':
+                                                        new_mapping[sheet][brand][mod] = str(modeles_miroirs[i]).strip()
+                                                    else:
+                                                        new_mapping[sheet][brand][mod] = f"{brand} {mod}" # Sécurité si case vide
+                                            else:
+                                                for mod in modeles:
+                                                    new_mapping[sheet][brand][mod] = f"{brand} {mod}"
+                                                    
                                 st.session_state.custom_catalog = new_catalog
-                                st.success(f"Catalogue chargé !")
+                                st.session_state.easyjob_mapping = new_mapping
+                                st.success(f"Catalogue chargé et mapping EasyJob configuré !")
                             except Exception as e:
                                 st.error(f"Erreur lecture Excel : {e}")
                     if st.session_state.custom_catalog:
                         if st.button("🗑️ Réinitialiser Catalogue"):
                             st.session_state.custom_catalog = {}
+                            st.session_state.easyjob_mapping = {}
                             st.rerun()
             else:
                 if code_secret: st.warning("Code incorrect")
@@ -492,7 +520,7 @@ with main_tabs[0]:
                         df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous":
                             df_base = df_base[df_base["Groupe"] == sel_grp_exp]
-                        
+                         
                         dico_besoins = {}
                         
                         if sel_grp_exp != "Tous":
@@ -502,7 +530,7 @@ with main_tabs[0]:
                             ]
                             if m_bes == "Par Jour & Scène":
                                 df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"] == s_j_m]
-                            
+                             
                             if not df_alim_besoin.empty:
                                 dico_besoins["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_besoin[["Format", "Métier", "Emplacement"]]
 
@@ -568,7 +596,8 @@ with main_tabs[0]:
                                 dico_besoins[f"FOURNI PAR : {art}"] = items_art
                         
                         titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
-                        if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
+                        if sel_grp_exp != "Tous": 
+                            titre_besoin += f" - {sel_grp_exp}"
                         
                         # --- Ajout des notes sous forme de texte brut ---
                         if m_bes == "Par Jour & Scène":
@@ -620,7 +649,13 @@ with main_tabs[0]:
                                 for _, row in data_pic.iterrows():
                                     qty = row["Total"]
                                     if qty > 0:
-                                        item_name = f"{row['Marque']} {row['Modèle']}".strip()
+                                        cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
+                                        item_name = f"{marque} {modele}".strip()
+                                        
+                                        # NOUVEAU : On utilise la référence miroir si elle existe
+                                        if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
+                                            item_name = st.session_state.easyjob_mapping[cat][marque][modele]
+                                            
                                         export_data.append({"Quantity": qty, "Items": item_name})
                         else:
                             all_days_res = []
@@ -632,7 +667,13 @@ with main_tabs[0]:
                                 for _, row in final.iterrows():
                                     qty = row["Max_Periode"]
                                     if qty > 0:
-                                        item_name = f"{row['Marque']} {row['Modèle']}".strip()
+                                        cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
+                                        item_name = f"{marque} {modele}".strip()
+                                        
+                                        # NOUVEAU : On utilise la référence miroir si elle existe
+                                        if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
+                                            item_name = st.session_state.easyjob_mapping[cat][marque][modele]
+                                            
                                         export_data.append({"Quantity": qty, "Items": item_name})
                         
                         df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
