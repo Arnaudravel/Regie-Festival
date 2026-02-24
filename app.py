@@ -5,8 +5,13 @@ from fpdf import FPDF
 import io
 import pickle
 import base64
-import plotly.express as px
 import streamlit.components.v1 as components
+
+# --- FILET DE SÉCURITÉ POUR PLOTLY ---
+try:
+    import plotly.express as px
+except ModuleNotFoundError:
+    px = None
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
@@ -790,11 +795,14 @@ with main_tabs[1]:
                         gantt_data.append(dict(Artiste=art, Phase=phase_name, Début=start_time, Fin=end_time))
             
             if gantt_data:
-                df_gantt = pd.DataFrame(gantt_data)
-                fig = px.timeline(df_gantt, x_start="Début", x_end="Fin", y="Artiste", color="Phase", title=f"Planning {s_s_g} - {s_j_g}")
-                fig.update_yaxes(autorange="reversed")
-                fig.update_layout(xaxis=dict(tickformat="%H:%M"))
-                st.plotly_chart(fig, use_container_width=True)
+                if px is not None:
+                    df_gantt = pd.DataFrame(gantt_data)
+                    fig = px.timeline(df_gantt, x_start="Début", x_end="Fin", y="Artiste", color="Phase", title=f"Planning {s_s_g} - {s_j_g}")
+                    fig.update_yaxes(autorange="reversed")
+                    fig.update_layout(xaxis=dict(tickformat="%H:%M"))
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("⚠️ La bibliothèque Plotly est manquante pour afficher le graphique. Ajoutez 'plotly' dans votre fichier requirements.txt.")
             else:
                 st.info("Aucune plage horaire valide renseignée pour cette date et cette scène.")
         else:
