@@ -10,6 +10,18 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
 
+# --- MODIF 3 : CACHER LES BOUTONS DE TELECHARGEMENT DES TABLEAUX ---
+st.markdown(
+    """
+    <style>
+    [data-testid="stElementToolbar"] {
+        display: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # --- AMÉLIORATION : POP-UP TIMER (JAVASCRIPT) ---
 st.components.v1.html(
     """
@@ -88,7 +100,6 @@ class FestivalPDF(FPDF):
 
     def dessiner_texte(self, texte):
         self.set_font("helvetica", "", 10)
-        # Protection basique pour les accents sous FPDF
         val = str(texte).encode('latin-1', 'replace').decode('latin-1')
         self.multi_cell(0, 6, val)
         self.ln(5)
@@ -108,7 +119,6 @@ class FestivalPDF(FPDF):
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
             for item in row:
-                # Protection basique pour les accents sous FPDF + nettoyage sauts de ligne
                 val = str(item).replace('\n', ' ').encode('latin-1', 'replace').decode('latin-1')
                 self.cell(col_width, 6, val, border=1, align='C')
             self.ln()
@@ -120,7 +130,6 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
-        # Entête standard
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -128,28 +137,25 @@ class FestivalPDF(FPDF):
     
         self.set_font("helvetica", "", 8)
         
-        # Mapping des émojis pastilles vers les couleurs RGB claires pour un bon contraste avec la police noire
         EMOJI_COLORS = {
-            "🟤": (205, 133, 63),   # Marron / Peru
-            "🔴": (255, 153, 153),  # Rouge clair
-            "🟠": (255, 204, 153),  # Orange clair
-            "🟡": (255, 255, 153),  # Jaune clair
-            "🟢": (153, 255, 153),  # Vert clair
-            "🔵": (153, 204, 255),  # Bleu clair
-            "🟣": (204, 153, 255),  # Violet clair
-            "⚪": (240, 240, 240),  # Gris très clair (Blanc)
-            "🍏": (204, 255, 153)   # Vert pomme clair
+            "🟤": (205, 133, 63),
+            "🔴": (255, 153, 153),
+            "🟠": (255, 204, 153),
+            "🟡": (255, 255, 153),
+            "🟢": (153, 255, 153),
+            "🔵": (153, 204, 255),
+            "🟣": (204, 153, 255),
+            "⚪": (240, 240, 240),
+            "🍏": (204, 255, 153)
         }
 
         for _, row in df.iterrows():
             if self.get_y() > 270: self.add_page()
             
-            row_color = (255, 255, 255) # Blanc par défaut
+            row_color = (255, 255, 255)
             row_texts = []
             
-            # 1er passage : trouver la couleur et nettoyer la chaine des émojis (pour compatibilité FPDF)
             for item in row:
-                # Traitement spécial pour transformer les True/False en cases à cocher type texte
                 if isinstance(item, bool):
                     val = "[ X ]" if item else "[   ]"
                 elif str(item).strip() == "True":
@@ -164,7 +170,6 @@ class FestivalPDF(FPDF):
                         row_color = color
                         val = val.replace(emoji, "").strip()
             
-                # Sécurisation FPDF + nettoyage sauts de ligne
                 val = val.replace('\n', ' ').encode('latin-1', 'replace').decode('latin-1')
                 row_texts.append(val)
             
@@ -288,7 +293,13 @@ with main_tabs[0]:
                 if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
                     nom_art = st.session_state.planning.iloc[idx]['Artiste']
                     st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
-                    if nom_art in st.session_state.riders_stockage: del st.session_state.riders_stockage[nom_art]
+                    
+                    # --- MODIF 4 : Nettoyage dynamique global des PDF ---
+                    artistes_actifs = st.session_state.planning["Artiste"].unique()
+                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                    for k in keys_to_delete:
+                        del st.session_state.riders_stockage[k]
+                        
                     st.session_state.delete_confirm_idx = None
                     st.rerun()
                 if col_cfg2.button("❌ Annuler", use_container_width=True):
@@ -307,6 +318,13 @@ with main_tabs[0]:
             df_to_save = edited_df.drop(columns=["Rider"])
             if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
                  st.session_state.planning = df_to_save.reset_index(drop=True)
+                 
+                 # --- MODIF 4 : Synchronisation automatique après édition du tableau ---
+                 artistes_actifs = st.session_state.planning["Artiste"].unique()
+                 keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                 for k in keys_to_delete:
+                     del st.session_state.riders_stockage[k]
+                     
                  st.rerun()
 
         st.divider()
@@ -435,7 +453,6 @@ with main_tabs[0]:
                                     new_catalog[sheet] = {}
                                     new_mapping[sheet] = {}
                                     
-                                    # On filtre les colonnes normales (qui ne finissent pas par _EASYJOB)
                                     marques_normales = [col for col in df.columns if not str(col).endswith("_EASYJOB")]
                                     
                                     for brand in marques_normales:
@@ -446,14 +463,13 @@ with main_tabs[0]:
                                             new_catalog[sheet][brand] = modeles
                                             new_mapping[sheet][brand] = {}
                                             
-                                            # Si la colonne miroir existe, on mappe chaque modèle avec sa ref EasyJob
                                             if col_miroir in df.columns:
                                                 modeles_miroirs = df[col_miroir].astype(str).tolist()
                                                 for i, mod in enumerate(modeles):
                                                     if i < len(modeles_miroirs) and modeles_miroirs[i] != 'nan' and str(modeles_miroirs[i]).strip() != '':
                                                         new_mapping[sheet][brand][mod] = str(modeles_miroirs[i]).strip()
                                                     else:
-                                                        new_mapping[sheet][brand][mod] = f"{brand} {mod}" # Sécurité si case vide
+                                                        new_mapping[sheet][brand][mod] = f"{brand} {mod}" 
                                             else:
                                                 for mod in modeles:
                                                     new_mapping[sheet][brand][mod] = f"{brand} {mod}"
@@ -560,7 +576,6 @@ with main_tabs[0]:
                             for a in arts: 
                                 if a not in mat.columns: mat[a] = 0
                             res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                            # Correction : On renomme proprement la dernière colonne en "Total"
                             df_res = res.reset_index()
                             df_res.columns = list(df_res.columns[:-1]) + ["Total"]
                             return df_res
@@ -599,7 +614,6 @@ with main_tabs[0]:
                         if sel_grp_exp != "Tous": 
                             titre_besoin += f" - {sel_grp_exp}"
                         
-                        # --- Ajout des notes sous forme de texte brut ---
                         if m_bes == "Par Jour & Scène":
                             arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
                         else:
@@ -621,7 +635,6 @@ with main_tabs[0]:
                 # BOUTON EXPORT EASYJOB
                 with col_btn_ej:
                     if st.button("Export Easyjob", use_container_width=True):
-                        # On récupère la base sans le matériel apporté par l'artiste (comme pour le PDF)
                         df_base_ej = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous":
                             df_base_ej = df_base_ej[df_base_ej["Groupe"] == sel_grp_exp]
@@ -652,7 +665,6 @@ with main_tabs[0]:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
                                         item_name = f"{marque} {modele}".strip()
                                         
-                                        # NOUVEAU : On utilise la référence miroir si elle existe
                                         if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
                                             item_name = st.session_state.easyjob_mapping[cat][marque][modele]
                                             
@@ -670,7 +682,6 @@ with main_tabs[0]:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
                                         item_name = f"{marque} {modele}".strip()
                                         
-                                        # NOUVEAU : On utilise la référence miroir si elle existe
                                         if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
                                             item_name = st.session_state.easyjob_mapping[cat][marque][modele]
                                             
@@ -678,7 +689,6 @@ with main_tabs[0]:
                         
                         df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
                         
-                        # Génération du fichier Excel en mémoire
                         output = io.BytesIO()
                         with pd.ExcelWriter(output) as writer:
                             df_export.to_excel(writer, index=False, sheet_name='Easyjob')
@@ -686,7 +696,7 @@ with main_tabs[0]:
                         
                         st.download_button("📥 Télécharger Excel", excel_data, "easyjob_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # --- NOUVELLE SECTION EXPORT PATCH IN/OUT ---
+        # --- EXPORT PATCH IN/OUT ---
         st.divider()
         st.subheader("🎛️ Export Patch IN / OUT")
         with st.container(border=True):
@@ -713,7 +723,6 @@ with main_tabs[0]:
                     if note_patch:
                         dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
                     
-                    # Ajout de l'alimentation électrique si présente
                     df_alim_patch = st.session_state.alim_elec[
                         (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
                         (st.session_state.alim_elec["Scène"] == s_s_patch) & 
@@ -801,13 +810,11 @@ with main_tabs[1]:
                     )
                     
                     if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
-                        # On retire les anciennes entrées de cet artiste
                         st.session_state.alim_elec = st.session_state.alim_elec[
                             ~((st.session_state.alim_elec["Groupe"] == sel_a) &
                               (st.session_state.alim_elec["Scène"] == sel_s) &
                               (st.session_state.alim_elec["Jour"] == sel_j))
                         ]
-                        # On ajoute les nouvelles
                         if not edited_alim.empty:
                             new_alim = edited_alim.copy()
                             new_alim["Groupe"] = sel_a
@@ -831,14 +838,48 @@ with main_tabs[1]:
                 st.subheader(f"📥 Saisie Matériel : {sel_a}")
                 with st.container(border=True):
                     CATALOGUE = st.session_state.custom_catalog
+                    
+                    # --- MODIF 5 : RECHERCHE RAPIDE SI CATALOGUE EXISTE ---
+                    if CATALOGUE:
+                        st.write("🔍 **Recherche rapide (Catalogue)**")
+                        all_items = []
+                        for cat, marques in CATALOGUE.items():
+                            for marq, modeles in marques.items():
+                                for mod in modeles:
+                                    if not str(mod).startswith("//") and not str(mod).startswith("🔹"):
+                                        all_items.append(f"{mod} ({marq} - {cat})")
+                        
+                        c_rech, c_qte_r, c_app_r, c_btn_r = st.columns([3, 1, 1, 1])
+                        recherche = c_rech.selectbox("Modèle", ["-- Sélectionner --"] + sorted(all_items), label_visibility="collapsed")
+                        qte_r = c_qte_r.number_input("Qté", 1, 500, 1, key="qte_r")
+                        app_r = c_app_r.checkbox("Artiste Apporte", key="app_r")
+                        
+                        if c_btn_r.button("⚡ Ajouter", use_container_width=True):
+                            if recherche != "-- Sélectionner --":
+                                mod_part = recherche.split(" (")[0]
+                                rest = recherche.split(" (")[1].replace(")", "")
+                                marq_part = rest.split(" - ")[0]
+                                cat_part = rest.split(" - ")[1]
+                                
+                                mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == mod_part) & (st.session_state.fiches_tech["Marque"] == marq_part) & (st.session_state.fiches_tech["Artiste_Apporte"] == app_r)
+                                if not st.session_state.fiches_tech[mask].empty:
+                                    st.session_state.fiches_tech.loc[mask, "Quantité"] += qte_r
+                                else:
+                                    new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": cat_part, "Marque": marq_part, "Modèle": mod_part, "Quantité": qte_r, "Artiste_Apporte": app_r}])
+                                    st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                                st.rerun()
+                        st.divider()
+                        st.write("⚙️ **Saisie par Catégorie & Marque**")
+                    
+                    # --- MODIF 2 : AJOUT DE "SYMETRISEUR" PAR DÉFAUT SI PAS DE CATALOGUE ---
                     c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
-                    liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE"]
+                    liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE", "SYMETRISEUR"]
                     v_cat = c_cat.selectbox("Catégorie", liste_categories)
                     liste_marques = []
                     if CATALOGUE and v_cat in CATALOGUE:
                         liste_marques = list(CATALOGUE[v_cat].keys())
                     else:
-                        liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER"]
+                        liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER", "BSS", "RADIAL"]
                     v_mar = c_mar.selectbox("Marque", liste_marques)
                     v_mod = ""
                     if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
@@ -847,8 +888,8 @@ with main_tabs[1]:
                         v_mod = c_mod.selectbox("Modèle", display_modeles)
                     else:
                         v_mod = c_mod.text_input("Modèle", "SM58")
-                    v_qte = c_qte.number_input("Qté", 1, 500, 1)
-                    v_app = c_app.checkbox("Artiste Apporte")
+                    v_qte = c_qte.number_input("Qté", 1, 500, 1, key="qte_classique")
+                    v_app = c_app.checkbox("Artiste Apporte", key="app_classique")
                     if st.button("Ajouter au Patch"):
                         if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")):
                             st.error("⛔ Impossible d'ajouter un titre de section.")
@@ -878,7 +919,21 @@ with main_tabs[1]:
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
                     df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
-                    edited_patch = st.data_editor(df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True)
+                    
+                    # --- MODIF 6 : MASQUER LES COLONNES SCENE, JOUR, GROUPE ---
+                    edited_patch = st.data_editor(
+                        df_patch_art, 
+                        use_container_width=True, 
+                        num_rows="dynamic", 
+                        key=f"ed_patch_{sel_a}", 
+                        hide_index=True,
+                        column_config={
+                            "Scène": None,
+                            "Jour": None,
+                            "Groupe": None
+                        }
+                    )
+                    
                     if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                         st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                         st.rerun()
@@ -897,7 +952,6 @@ with main_tabs[1]:
                             if a not in matrice.columns: matrice[a] = 0
                         matrice = matrice[liste_art]
                         res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                        # Correction : On renomme proprement la dernière colonne en "Total"
                         df_res = res.reset_index()
                         df_res.columns = list(df_res.columns[:-1]) + ["Total"]
                         st.dataframe(df_res, use_container_width=True, hide_index=True)
@@ -907,7 +961,6 @@ with main_tabs[1]:
         st.subheader("📋 Patch IN / OUT")
         
         if not st.session_state.planning.empty:
-            # 1ère Ligne : Sélection Jour / Scène / Groupe
             f1_p, f2_p, f3_p = st.columns(3)
             with f1_p: 
                 sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
@@ -918,7 +971,6 @@ with main_tabs[1]:
                 artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
-                # Bloc Riders PDF pour l'onglet Patch
                 if sel_a_p and sel_a_p in st.session_state.riders_stockage:
                     riders_groupe_p = list(st.session_state.riders_stockage[sel_a_p].keys())
                     if riders_groupe_p:
@@ -930,21 +982,17 @@ with main_tabs[1]:
                             st.markdown(pdf_link_p, unsafe_allow_html=True)
 
             if sel_a_p:
-                # Récupération de tous les artistes du jour sur cette scène triés par heure
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)].sort_values("Show")
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                # Fonction utilitaire pour récupérer une valeur de circuit
                 def get_circ(art, key):
                     return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
-                # Initialisation des variables MAX (conservée pour le calcul logique sous-jacent)
                 max_inputs = 0
                 max_ear = 0
                 max_mon_s = 0
                 max_mon_m = 0
 
-                # Calcul des MAX consécutifs
                 if len(liste_art_patch) == 1:
                     a1 = liste_art_patch[0]
                     max_inputs = get_circ(a1, "inputs")
@@ -961,7 +1009,6 @@ with main_tabs[1]:
                         max_mon_s = max(max_mon_s, get_circ(a1, "mon_stereo") + get_circ(a2, "mon_stereo"))
                         max_mon_m = max(max_mon_m, get_circ(a1, "mon_mono") + get_circ(a2, "mon_mono"))
 
-                # Ligne : Besoins du groupe sélectionné
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
                 col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
@@ -986,13 +1033,11 @@ with main_tabs[1]:
                     prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
                     num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
 
-                    # Initialisation sécurisée pour chaque groupe
                     if sel_a_p not in st.session_state.patches_io:
                         st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
 
                     curr_state = st.session_state.patches_io[sel_a_p]
                     
-                    # Si le nombre d'inputs du groupe a changé depuis la dernière visite, on réinitialise
                     if curr_state["nb_inputs"] != nb_inputs_groupe:
                         curr_state["12N"] = None
                         curr_state["20H"] = None
@@ -1000,7 +1045,6 @@ with main_tabs[1]:
                         
                     mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
 
-                    # Création des tableaux pour le mode sélectionné s'ils n'existent pas encore
                     if curr_state[mode_key] is None:
                         tables = {}
                         if mode_patch == "PATCH 20H" and max_inputs <= 60:
@@ -1024,17 +1068,23 @@ with main_tabs[1]:
 
                     tables_data = curr_state[mode_key]
 
-                    # Préparation des listes de matériels (Filtres)
+                    # --- MODIF 1 : DÉCRÉMENTATION DES MICROS PAR INSTANCIATION ---
                     df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
                     excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
-                    liste_micros = [None] + df_mat[~df_mat["Catégorie"].isin(excl_micros)]["Modèle"].unique().tolist()
+                    
+                    micros_instances = []
+                    df_micros = df_mat[~df_mat["Catégorie"].isin(excl_micros)]
+                    for _, row in df_micros.iterrows():
+                        qty = int(row["Quantité"])
+                        for i in range(1, qty + 1):
+                            micros_instances.append(f"{row['Modèle']} #{i}")
+                            
+                    liste_micros = [None] + sorted(micros_instances)
                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
 
-                    # Mapping couleurs pour les boîtiers
                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
                     all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
 
-                    # Fonction pour nettoyer l'input de ses émojis pastilles (pour l'exclusivité)
                     def clean_input(val):
                         if pd.isna(val) or not isinstance(val, str): return val
                         res = val
@@ -1042,16 +1092,20 @@ with main_tabs[1]:
                             res = res.replace(f" {e}", "").replace(e, "").strip()
                         return res
 
-                    # Récolte des inputs et boitiers déjà utilisés pour l'exclusivité
                     used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
                     used_inputs_departs = {}
                     used_boxes_departs = {}
+                    used_micros_all = set()
+                    
+                    if "MASTER" in tables_data:
+                        used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
+                        
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         used_inputs_departs[t_name] = set(clean_input(x) for x in tables_data[t_name]["Input"].dropna().tolist())
                         used_boxes_departs[t_name] = set(tables_data[t_name]["Boîtier"].dropna().tolist())
+                        used_micros_all.update(tables_data[t_name]["Micro / DI"].dropna().tolist())
 
-                    # --- Affichage MASTER PATCH ---
                     if "MASTER" in tables_data:
                         label_master = "MASTER PATCH 40" if max_inputs <= 40 else "MASTER PATCH 60"
                         st.subheader(f"🛠️ {label_master}")
@@ -1059,13 +1113,17 @@ with main_tabs[1]:
                         all_master_inputs = [f"INPUT {j}" for j in range(1, nb_inputs_groupe + 1)]
                         used_in_any_depart = set().union(*used_inputs_departs.values()) if used_inputs_departs else set()
                         avail_master_inputs = [None] + [x for x in all_master_inputs if x not in used_in_any_depart]
+                        
+                        # Filtre dynamique des instances de micros pour le selectbox (disponibles + ceux déjà dans ce tableau)
+                        current_micros_master = tables_data["MASTER"]["Micro / DI"].dropna().tolist()
+                        avail_micros_master = [m for m in liste_micros if m not in used_micros_all or m in current_micros_master]
 
                         with st.expander(f"{label_master} ({nb_inputs_groupe} Lignes limitées par max circuits entrées)", expanded=True):
                             edited_master = st.data_editor(
                                 tables_data["MASTER"],
                                 column_config={
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_master_inputs),
-                                    "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
+                                    "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_master),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
@@ -1077,7 +1135,6 @@ with main_tabs[1]:
                                 curr_state[mode_key]["MASTER"] = edited_master
                                 st.rerun()
 
-                    # --- Affichage DEPARTS ---
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         start_idx = (i-1)*step + 1
@@ -1085,15 +1142,12 @@ with main_tabs[1]:
                         
                         st.subheader(f"📤 DEPART {i} ({start_idx} --> {end_idx})")
                         
-                        # Exclusivité Boîtiers
                         used_in_other_departs = set().union(*[used_boxes_departs[k] for k in used_boxes_departs if k != t_name])
                         avail_boxes = [x for x in all_boxes if x not in used_in_other_departs]
                         
-                        # Exclusivité Inputs purs (sans émoji)
                         all_depart_inputs = [f"INPUT {j}" for j in range(start_idx, i*step + 1) if j <= nb_inputs_groupe]
                         avail_inputs_base = [x for x in all_depart_inputs if x not in used_inputs_master]
 
-                        # --- Calcul dynamique de la pastille de couleur et greffe sur l'INPUT ---
                         for idx in tables_data[t_name].index:
                             box_val = tables_data[t_name].at[idx, "Boîtier"]
                             p_val = ""
@@ -1111,9 +1165,12 @@ with main_tabs[1]:
                                 else:
                                     tables_data[t_name].at[idx, "Input"] = base_input
 
-                        # Construction des options pour permettre l'affichage de l'émoji dans le selectbox
                         current_inputs_in_table = [x for x in tables_data[t_name]["Input"].dropna().unique()]
                         options_inputs = list(dict.fromkeys([None] + avail_inputs_base + current_inputs_in_table))
+                        
+                        # Filtre dynamique des instances de micros
+                        current_micros_dep = tables_data[t_name]["Micro / DI"].dropna().tolist()
+                        avail_micros_dep = [m for m in liste_micros if m not in used_micros_all or m in current_micros_dep]
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
                             edited_dep = st.data_editor(
@@ -1121,7 +1178,7 @@ with main_tabs[1]:
                                 column_config={
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
                                     "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
-                                    "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=liste_micros),
+                                    "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_dep),
                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
@@ -1129,7 +1186,6 @@ with main_tabs[1]:
                                 use_container_width=True,
                                 key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
-                            # Si le tableau a été modifié, on sauvegarde et on relance pour recalculer la nouvelle pastille/exclusion
                             if not edited_dep.equals(tables_data[t_name]):
                                 curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
