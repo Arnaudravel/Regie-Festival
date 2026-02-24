@@ -4,4 +4,5 @@ fpdf
 fpdf2
 Pillow
 openpyxl
+plotly
 
