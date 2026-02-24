@@ -661,30 +661,36 @@ with main_tabs[1]:
         r2_1, r2_2, r2_3 = st.columns(3)
         with r2_1:
             st.markdown("**Load IN**")
-            li_d = st.selectbox("Début", time_options, key="li_d")
-            li_f = st.selectbox("Fin", time_options, key="li_f")
+            c_d, c_f = st.columns(2)
+            li_d = c_d.selectbox("Début", time_options, key="li_d")
+            li_f = c_f.selectbox("Fin", time_options, key="li_f")
         with r2_2:
             st.markdown("**Installation Off Stage**")
-            ioff_d = st.selectbox("Début", time_options, key="ioff_d")
-            ioff_f = st.selectbox("Fin", time_options, key="ioff_f")
+            c_d, c_f = st.columns(2)
+            ioff_d = c_d.selectbox("Début", time_options, key="ioff_d")
+            ioff_f = c_f.selectbox("Fin", time_options, key="ioff_f")
         with r2_3:
             st.markdown("**Installation On Stage**")
-            ion_d = st.selectbox("Début", time_options, key="ion_d")
-            ion_f = st.selectbox("Fin", time_options, key="ion_f")
+            c_d, c_f = st.columns(2)
+            ion_d = c_d.selectbox("Début", time_options, key="ion_d")
+            ion_f = c_f.selectbox("Fin", time_options, key="ion_f")
 
         r3_1, r3_2, r3_3 = st.columns(3)
         with r3_1:
             st.markdown("**Balances**")
-            bal_d = st.selectbox("Début", time_options, key="bal_d")
-            bal_f = st.selectbox("Fin", time_options, key="bal_f")
+            c_d, c_f = st.columns(2)
+            bal_d = c_d.selectbox("Début", time_options, key="bal_d")
+            bal_f = c_f.selectbox("Fin", time_options, key="bal_f")
         with r3_2:
             st.markdown("**Change Over**")
-            co_d = st.selectbox("Début", time_options, key="co_d")
-            co_f = st.selectbox("Fin", time_options, key="co_f")
+            c_d, c_f = st.columns(2)
+            co_d = c_d.selectbox("Début", time_options, key="co_d")
+            co_f = c_f.selectbox("Fin", time_options, key="co_f")
         with r3_3:
             st.markdown("**Show**")
-            sh_d = st.selectbox("Début", time_options, key="sh_d")
-            sh_f = st.selectbox("Fin", time_options, key="sh_f")
+            c_d, c_f = st.columns(2)
+            sh_d = c_d.selectbox("Début", time_options, key="sh_d")
+            sh_f = c_f.selectbox("Fin", time_options, key="sh_f")
 
         pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
         
