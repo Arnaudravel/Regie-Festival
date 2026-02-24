@@ -223,135 +223,16 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 
 # --- CREATION DES ONGLETS PRINCIPAUX ---
-main_tabs = st.tabs(["Configuration", "Technique"])
+main_tabs = st.tabs(["PROJET", "Gestion des artistes / Planning festival", "Technique"])
 
 # ==========================================
-# ONGLET 1 : CONFIGURATION
+# ONGLET 1 : PROJET
 # ==========================================
 with main_tabs[0]:
-    sub_tabs_config = st.tabs(["Gestion / Planning des Artistes", "Admin & Sauvegarde", "Exports PDF"])
+    sub_tabs_projet = st.tabs(["Admin & Sauvegarde", "Export"])
     
-    # --- SOUS-ONGLET 1 : GESTION / PLANNING ---
-    with sub_tabs_config[0]:
-        st.subheader("➕ Ajouter un Artiste")
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
-            sc = c1.text_input("Scène", "MainStage")
-            jo = c2.date_input("Date de passage", datetime.date.today())
-            ar = c3.text_input("Nom Artiste")
-            sh = c4.time_input("Heure du Show", datetime.time(20, 0))
-            
-            col_opt, col_h_bal, col_d_bal = st.columns([1, 1, 1])
-            with col_opt:
-                st.write("") 
-                opt_balance = st.checkbox("Faire une balance ?", value=True)
-            
-            with col_h_bal:
-                if opt_balance:
-                    ba = st.time_input("Heure Balance", datetime.time(14, 0))
-                else:
-                    ba = None
-                    st.info("Pas de balance")
-            
-            with col_d_bal:
-                if opt_balance:
-                    du = st.text_input("Durée Balance", "45 min")
-                else:
-                    du = ""
-
-            pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
-            
-            if st.button("Valider Artiste"):
-                if ar:
-                    val_ba = ba.strftime("%H:%M") if ba and opt_balance else ""
-                    val_du = du if opt_balance else ""
-                    new_row = pd.DataFrame([{
-                        "Scène": sc, 
-                        "Jour": str(jo), 
-                        "Artiste": ar, 
-                        "Balance": val_ba,
-                        "Durée Balance": val_du, 
-                        "Show": sh.strftime("%H:%M")
-                    }])
-                    if "Durée Balance" not in st.session_state.planning.columns:
-                        st.session_state.planning["Durée Balance"] = ""
-                    st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
-                    if ar not in st.session_state.riders_stockage:
-                        st.session_state.riders_stockage[ar] = {}
-                    if pdfs:
-                        for f in pdfs:
-                            st.session_state.riders_stockage[ar][f.name] = f.read()
-                    st.session_state.uploader_key += 1
-                    st.rerun()
-
-        st.subheader("📋 Planning Global (Modifiable)")
-        if st.session_state.delete_confirm_idx is not None:
-            idx = st.session_state.delete_confirm_idx
-            with st.status("⚠️ Confirmation de suppression", expanded=True):
-                st.write(f"Supprimer définitivement l'artiste : **{st.session_state.planning.iloc[idx]['Artiste']}** ?")
-                col_cfg1, col_cfg2 = st.columns(2)
-                if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
-                    nom_art = st.session_state.planning.iloc[idx]['Artiste']
-                    st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
-                    
-                    # --- MODIF 4 : Nettoyage dynamique global des PDF ---
-                    artistes_actifs = st.session_state.planning["Artiste"].unique()
-                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                    for k in keys_to_delete:
-                        del st.session_state.riders_stockage[k]
-                        
-                    st.session_state.delete_confirm_idx = None
-                    st.rerun()
-                if col_cfg2.button("❌ Annuler", use_container_width=True):
-                    st.session_state.delete_confirm_idx = None
-                    st.rerun()
-
-        if not st.session_state.planning.empty:
-            if "Durée Balance" not in st.session_state.planning.columns:
-                st.session_state.planning["Durée Balance"] = ""
-            df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
-            df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-            edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
-            if st.session_state.main_editor["deleted_rows"]:
-                st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
-                st.rerun()
-            df_to_save = edited_df.drop(columns=["Rider"])
-            if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
-                 st.session_state.planning = df_to_save.reset_index(drop=True)
-                 
-                 # --- MODIF 4 : Synchronisation automatique après édition du tableau ---
-                 artistes_actifs = st.session_state.planning["Artiste"].unique()
-                 keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                 for k in keys_to_delete:
-                     del st.session_state.riders_stockage[k]
-                     
-                 st.rerun()
-
-        st.divider()
-        st.subheader("📁 Gestion des Fichiers PDF")
-        if st.session_state.riders_stockage:
-            keys_list = list(st.session_state.riders_stockage.keys())
-            if keys_list:
-                cg1, cg2 = st.columns(2)
-                with cg1:
-                    choix_art_pdf = st.selectbox("Choisir Artiste pour gérer ses PDF :", keys_list)
-                    fichiers = st.session_state.riders_stockage.get(choix_art_pdf, {})
-                    for fname in list(fichiers.keys()):
-                        cf1, cf2 = st.columns([4, 1])
-                        cf1.write(f"📄 {fname}")
-                        if cf2.button("🗑️", key=f"del_pdf_{fname}"):
-                            del st.session_state.riders_stockage[choix_art_pdf][fname]
-                            st.rerun()
-                with cg2:
-                    nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
-                    if st.button("Enregistrer les nouveaux PDF"):
-                        if nouveaux_pdf:
-                            for f in nouveaux_pdf: 
-                                st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
-                        st.rerun()
-
-    # --- SOUS-ONGLET 2 : ADMIN & SAUVEGARDE ---
-    with sub_tabs_config[1]:
+    # --- SOUS-ONGLET 1 : ADMIN & SAUVEGARDE ---
+    with sub_tabs_projet[0]:
         st.header("🛠️ Administration & Sauvegarde")
         col_adm1, col_adm2 = st.columns(2)
         with col_adm1:
@@ -487,8 +368,8 @@ with main_tabs[0]:
             else:
                 if code_secret: st.warning("Code incorrect")
 
-    # --- SOUS-ONGLET 3 : EXPORTS PDF ---
-    with sub_tabs_config[2]:
+    # --- SOUS-ONGLET 2 : EXPORT ---
+    with sub_tabs_projet[1]:
         st.header("📄 Génération des Exports PDF")
         l_jours = sorted(st.session_state.planning["Jour"].unique())
         l_scenes = sorted(st.session_state.planning["Scène"].unique())
@@ -741,10 +622,131 @@ with main_tabs[0]:
                     st.info(f"ℹ️ Aucun Patch {s_m_patch} encodé pour {s_a_patch}. Veuillez le créer dans l'onglet Technique.")
 
 # ==========================================
-# ONGLET 2 : TECHNIQUE
+# ONGLET 2 : GESTION DES ARTISTES / PLANNING
 # ==========================================
 with main_tabs[1]:
-    sub_tabs_tech = st.tabs(["Saisie du matériel", "Patch IN / OUT"])
+    st.subheader("➕ Ajouter un Artiste")
+    with st.container(border=True):
+        c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
+        sc = c1.text_input("Scène", "MainStage")
+        jo = c2.date_input("Date de passage", datetime.date.today())
+        ar = c3.text_input("Nom Artiste")
+        sh = c4.time_input("Heure du Show", datetime.time(20, 0))
+        
+        col_opt, col_h_bal, col_d_bal = st.columns([1, 1, 1])
+        with col_opt:
+            st.write("") 
+            opt_balance = st.checkbox("Faire une balance ?", value=True)
+        
+        with col_h_bal:
+            if opt_balance:
+                ba = st.time_input("Heure Balance", datetime.time(14, 0))
+            else:
+                ba = None
+                st.info("Pas de balance")
+        
+        with col_d_bal:
+            if opt_balance:
+                du = st.text_input("Durée Balance", "45 min")
+            else:
+                du = ""
+
+        pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
+        
+        if st.button("Valider Artiste"):
+            if ar:
+                val_ba = ba.strftime("%H:%M") if ba and opt_balance else ""
+                val_du = du if opt_balance else ""
+                new_row = pd.DataFrame([{
+                    "Scène": sc, 
+                    "Jour": str(jo), 
+                    "Artiste": ar, 
+                    "Balance": val_ba,
+                    "Durée Balance": val_du, 
+                    "Show": sh.strftime("%H:%M")
+                }])
+                if "Durée Balance" not in st.session_state.planning.columns:
+                    st.session_state.planning["Durée Balance"] = ""
+                st.session_state.planning = pd.concat([st.session_state.planning, new_row], ignore_index=True)
+                if ar not in st.session_state.riders_stockage:
+                    st.session_state.riders_stockage[ar] = {}
+                if pdfs:
+                    for f in pdfs:
+                        st.session_state.riders_stockage[ar][f.name] = f.read()
+                st.session_state.uploader_key += 1
+                st.rerun()
+
+    st.subheader("📋 Planning Global (Modifiable)")
+    if st.session_state.delete_confirm_idx is not None:
+        idx = st.session_state.delete_confirm_idx
+        with st.status("⚠️ Confirmation de suppression", expanded=True):
+            st.write(f"Supprimer définitivement l'artiste : **{st.session_state.planning.iloc[idx]['Artiste']}** ?")
+            col_cfg1, col_cfg2 = st.columns(2)
+            if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
+                nom_art = st.session_state.planning.iloc[idx]['Artiste']
+                st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
+                
+                # --- MODIF 4 : Nettoyage dynamique global des PDF ---
+                artistes_actifs = st.session_state.planning["Artiste"].unique()
+                keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                for k in keys_to_delete:
+                    del st.session_state.riders_stockage[k]
+                    
+                st.session_state.delete_confirm_idx = None
+                st.rerun()
+            if col_cfg2.button("❌ Annuler", use_container_width=True):
+                st.session_state.delete_confirm_idx = None
+                st.rerun()
+
+    if not st.session_state.planning.empty:
+        if "Durée Balance" not in st.session_state.planning.columns:
+            st.session_state.planning["Durée Balance"] = ""
+        df_visu = st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).copy()
+        df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+        edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
+        if st.session_state.main_editor["deleted_rows"]:
+            st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
+            st.rerun()
+        df_to_save = edited_df.drop(columns=["Rider"])
+        if not df_to_save.equals(st.session_state.planning.sort_values(by=["Jour", "Scène", "Show"]).reset_index(drop=True)):
+             st.session_state.planning = df_to_save.reset_index(drop=True)
+             
+             # --- MODIF 4 : Synchronisation automatique après édition du tableau ---
+             artistes_actifs = st.session_state.planning["Artiste"].unique()
+             keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+             for k in keys_to_delete:
+                 del st.session_state.riders_stockage[k]
+                 
+             st.rerun()
+
+    st.divider()
+    st.subheader("📁 Gestion des Fichiers PDF")
+    if st.session_state.riders_stockage:
+        keys_list = list(st.session_state.riders_stockage.keys())
+        if keys_list:
+            cg1, cg2 = st.columns(2)
+            with cg1:
+                choix_art_pdf = st.selectbox("Choisir Artiste pour gérer ses PDF :", keys_list)
+                fichiers = st.session_state.riders_stockage.get(choix_art_pdf, {})
+                for fname in list(fichiers.keys()):
+                    cf1, cf2 = st.columns([4, 1])
+                    cf1.write(f"📄 {fname}")
+                    if cf2.button("🗑️", key=f"del_pdf_{fname}"):
+                        del st.session_state.riders_stockage[choix_art_pdf][fname]
+                        st.rerun()
+            with cg2:
+                nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
+                if st.button("Enregistrer les nouveaux PDF"):
+                    if nouveaux_pdf:
+                        for f in nouveaux_pdf: 
+                            st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
+                    st.rerun()
+
+# ==========================================
+# ONGLET 3 : TECHNIQUE
+# ==========================================
+with main_tabs[2]:
+    sub_tabs_tech = st.tabs(["Saisie du matériel", "Création des Patch IN/OUT"])
     
     # --- SOUS-ONGLET 1 : SAISIE MATERIEL ---
     with sub_tabs_tech[0]:
@@ -956,7 +958,7 @@ with main_tabs[1]:
                         df_res.columns = list(df_res.columns[:-1]) + ["Total"]
                         st.dataframe(df_res, use_container_width=True, hide_index=True)
 
-    # --- SOUS-ONGLET 2 : PATCH IN / OUT ---
+    # --- SOUS-ONGLET 2 : CREATION DES PATCH IN/OUT ---
     with sub_tabs_tech[1]:
         st.subheader("📋 Patch IN / OUT")
         
