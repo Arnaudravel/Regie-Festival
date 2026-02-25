@@ -5,4 +5,5 @@ fpdf2
 Pillow
 openpyxl
 plotly
+kaleido==0.2.1
 
