@@ -6,4 +6,5 @@ Pillow
 openpyxl
 plotly
 kaleido==0.2.1
-
+matplotlib
+numpy
