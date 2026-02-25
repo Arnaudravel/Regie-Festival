@@ -448,7 +448,7 @@ def generer_pdf_planning_visuel(df_scene, titre):
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 
 # --- CREATION DES ONGLETS PRINCIPAUX ---
-main_tabs = st.tabs(["PROJET", "Gestion Festival", "Technique"])
+main_tabs = st.tabs(["Projet", "Gestion Festival", "Technique"])
 
 # ==========================================
 # ONGLET 1 : PROJET
@@ -1165,67 +1165,67 @@ with main_tabs[2]:
             if sel_a:
                 st.divider()
                 
-                col_circ, col_alim = st.columns(2)
-                
-                with col_circ:
-                    st.subheader(f"⚙️ Configuration circuits : {sel_a}")
-                    if sel_a not in st.session_state.artist_circuits:
-                        st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0}
+                with st.expander(f"⚙️ Configuration circuits et ⚡ Alimentation électrique : {sel_a}", expanded=False):
+                    col_circ, col_alim = st.columns(2)
                     
-                    c_circ1, c_circ2 = st.columns(2)
-                    with c_circ1:
-                        st.session_state.artist_circuits[sel_a]["inputs"] = st.number_input("Circuits d'entrées", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("inputs", 0)), key=f"in_{sel_a}")
-                        st.session_state.artist_circuits[sel_a]["mon_stereo"] = st.number_input("MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_stereo", 0)), key=f"ms_{sel_a}")
-                    with c_circ2:
-                        st.session_state.artist_circuits[sel_a]["ear_stereo"] = st.number_input("EAR MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("ear_stereo", 0)), key=f"ear_{sel_a}")
-                        st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
+                    with col_circ:
+                        st.markdown(f"**⚙️ Configuration circuits**")
+                        if sel_a not in st.session_state.artist_circuits:
+                            st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0}
+                        
+                        c_circ1, c_circ2 = st.columns(2)
+                        with c_circ1:
+                            st.session_state.artist_circuits[sel_a]["inputs"] = st.number_input("Circuits d'entrées", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("inputs", 0)), key=f"in_{sel_a}")
+                            st.session_state.artist_circuits[sel_a]["mon_stereo"] = st.number_input("MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_stereo", 0)), key=f"ms_{sel_a}")
+                        with c_circ2:
+                            st.session_state.artist_circuits[sel_a]["ear_stereo"] = st.number_input("EAR MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("ear_stereo", 0)), key=f"ear_{sel_a}")
+                            st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
 
-                with col_alim:
-                    st.subheader(f"⚡ Alimentation électrique : {sel_a}")
-                    df_alim_art = st.session_state.alim_elec[
-                        (st.session_state.alim_elec["Groupe"] == sel_a) &
-                        (st.session_state.alim_elec["Scène"] == sel_s) &
-                        (st.session_state.alim_elec["Jour"] == sel_j)
-                    ]
-                    
-                    edited_alim = st.data_editor(
-                        df_alim_art[["Format", "Métier", "Emplacement"]],
-                        column_config={
-                            "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
-                            "Métier": st.column_config.SelectboxColumn("Métier", options=["SON", "BACKLINE", "LUMIERE", "VIDEO", "STRUCTURE", "TOURBUS"], required=True),
-                            "Emplacement": st.column_config.SelectboxColumn("Emplacement", options=["FOH", "JARDIN", "COUR", "LOINTAIN"], required=True)
-                         },
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
-                        key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
-                    )
-                    
-                    if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
-                         st.session_state.alim_elec = st.session_state.alim_elec[
-                            ~((st.session_state.alim_elec["Groupe"] == sel_a) &
-                              (st.session_state.alim_elec["Scène"] == sel_s) &
-                              (st.session_state.alim_elec["Jour"] == sel_j))
+                    with col_alim:
+                        st.markdown(f"**⚡ Alimentation électrique**")
+                        df_alim_art = st.session_state.alim_elec[
+                            (st.session_state.alim_elec["Groupe"] == sel_a) &
+                            (st.session_state.alim_elec["Scène"] == sel_s) &
+                            (st.session_state.alim_elec["Jour"] == sel_j)
                         ]
-                         if not edited_alim.empty:
-                            new_alim = edited_alim.copy()
-                            new_alim["Groupe"] = sel_a
-                            new_alim["Scène"] = sel_s
-                            new_alim["Jour"] = sel_j
-                            st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
-                         st.rerun()
+                        
+                        edited_alim = st.data_editor(
+                            df_alim_art[["Format", "Métier", "Emplacement"]],
+                            column_config={
+                                "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
+                                "Métier": st.column_config.TextColumn("Métier", required=True),
+                                "Emplacement": st.column_config.TextColumn("Emplacement", required=True)
+                             },
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True,
+                            key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
+                        )
+                        
+                        if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
+                             st.session_state.alim_elec = st.session_state.alim_elec[
+                                ~((st.session_state.alim_elec["Groupe"] == sel_a) &
+                                  (st.session_state.alim_elec["Scène"] == sel_s) &
+                                  (st.session_state.alim_elec["Jour"] == sel_j))
+                            ]
+                             if not edited_alim.empty:
+                                new_alim = edited_alim.copy()
+                                new_alim["Groupe"] = sel_a
+                                new_alim["Scène"] = sel_s
+                                new_alim["Jour"] = sel_j
+                                st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
+                             st.rerun()
 
                 st.divider()
-                st.subheader(f"📝 Informations complémentaires / Matériel apporté : {sel_a}")
-                note_val = st.session_state.notes_artistes.get(sel_a, "")
-                new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
-                if new_note != note_val:
-                    st.session_state.notes_artistes[sel_a] = new_note
-                    st.rerun()
+                with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
+                    note_val = st.session_state.notes_artistes.get(sel_a, "")
+                    new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
+                    if new_note != note_val:
+                        st.session_state.notes_artistes[sel_a] = new_note
+                        st.rerun()
 
                 st.divider()
-                st.subheader(f"📥 Saisie Matériel : {sel_a}")
-                with st.container(border=True):
+                with st.expander(f"📥 Saisie Matériel : {sel_a}", expanded=True):
                     CATALOGUE = st.session_state.custom_catalog
                     if CATALOGUE:
                         st.write("🔍 **Recherche rapide (Catalogue)**")
@@ -1237,7 +1237,7 @@ with main_tabs[2]:
                                         all_items.append(f"{mod} ({marq} - {cat})")
                         
                         c_rech, c_qte_r, c_app_r, c_btn_r = st.columns([3, 1, 1, 1])
-                        recherche = c_rech.selectbox("Modèle", ["-- Sélectionner --"] + sorted(all_items), label_visibility="collapsed")
+                        recherche = c_rech.selectbox("Modèle (Recherche)", ["-- Sélectionner --"] + sorted(all_items))
                         qte_r = c_qte_r.number_input("Qté", 1, 500, 1, key="qte_r")
                         app_r = c_app_r.checkbox("Artiste Apporte", key="app_r")
                         
@@ -1306,10 +1306,10 @@ with main_tabs[2]:
                         df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
-                     if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
+                    if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                         st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                         st.rerun()
-                     if not edited_patch.equals(df_patch_art):
+                    if not edited_patch.equals(df_patch_art):
                         st.session_state.fiches_tech.update(edited_patch)
                         st.rerun()
 
@@ -1340,7 +1340,7 @@ with main_tabs[2]:
                 sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
             with f3_p:
                 artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
-                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
+                sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
                 if sel_a_p and sel_a_p in st.session_state.riders_stockage:
                     riders_groupe_p = list(st.session_state.riders_stockage[sel_a_p].keys())
@@ -1356,7 +1356,7 @@ with main_tabs[2]:
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+                def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
                 max_inputs, max_ear, max_mon_s, max_mon_m = 0, 0, 0, 0
 
