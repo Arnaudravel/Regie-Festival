@@ -1345,8 +1345,8 @@ with main_tabs[2]:
                 if sel_a_p and sel_a_p in st.session_state.riders_stockage:
                     riders_groupe_p = list(st.session_state.riders_stockage[sel_a_p].keys())
                     if riders_groupe_p:
-                         sel_file_p = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_p, key=f"view_p_{sel_a_p}")
-                         if sel_file_p != "-- Choisir un fichier --":
+                        sel_file_p = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_p, key=f"view_p_{sel_a_p}")
+                        if sel_file_p != "-- Choisir un fichier --":
                             pdf_data_p = st.session_state.riders_stockage[sel_a_p][sel_file_p]
                             b64_pdf_p = base64.b64encode(pdf_data_p).decode('utf-8')
                             pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none;color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
@@ -1367,7 +1367,7 @@ with main_tabs[2]:
                     max_mon_s = get_circ(a1, "mon_stereo")
                     max_mon_m = get_circ(a1, "mon_mono")
                 elif len(liste_art_patch) > 1:
-                     for i in range(len(liste_art_patch) - 1):
+                    for i in range(len(liste_art_patch) - 1):
                         a1, a2 = liste_art_patch[i], liste_art_patch[i+1]
                         max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
                         max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
@@ -1386,23 +1386,23 @@ with main_tabs[2]:
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
                 
                 if nb_inputs_groupe > 0:
-                     col_mode1, col_mode2 = st.columns([1, 3])
-                     with col_mode1: mode_patch = st.radio("Saisie :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                    col_mode1, col_mode2 = st.columns([1, 3])
+                    with col_mode1: mode_patch = st.radio("Saisie :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                     
-                     step = 12 if mode_patch == "PATCH 12N" else 20
-                     prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
-                     num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
+                    step = 12 if mode_patch == "PATCH 12N" else 20
+                    prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
+                    num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
 
-                     if sel_a_p not in st.session_state.patches_io: st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
-                     curr_state = st.session_state.patches_io[sel_a_p]
+                    if sel_a_p not in st.session_state.patches_io: st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
+                    curr_state = st.session_state.patches_io[sel_a_p]
                     
-                     if curr_state["nb_inputs"] != nb_inputs_groupe:
+                    if curr_state["nb_inputs"] != nb_inputs_groupe:
                         curr_state["12N"], curr_state["20H"] = None, None
                         curr_state["nb_inputs"] = nb_inputs_groupe
                         
-                     mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
+                    mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
 
-                     if curr_state[mode_key] is None:
+                    if curr_state[mode_key] is None:
                         tables = {}
                         if mode_patch == "PATCH 20H" and max_inputs <= 60:
                             tables["MASTER"] = pd.DataFrame({
@@ -1416,40 +1416,40 @@ with main_tabs[2]:
                             })
                         curr_state[mode_key] = tables
 
-                     tables_data = curr_state[mode_key]
-                     df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
-                     excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
+                    tables_data = curr_state[mode_key]
+                    df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
+                    excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
                     
-                     micros_instances = []
-                     df_micros = df_mat[~df_mat["Catégorie"].isin(excl_micros)]
-                     for _, row in df_micros.iterrows():
+                    micros_instances = []
+                    df_micros = df_mat[~df_mat["Catégorie"].isin(excl_micros)]
+                    for _, row in df_micros.iterrows():
                         qty = int(row["Quantité"])
                         for i in range(1, qty + 1): micros_instances.append(f"{row['Modèle']} #{i}")
                     
-                     liste_micros = [None] + sorted(micros_instances)
-                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
-                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
-                     all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
+                    liste_micros = [None] + sorted(micros_instances)
+                    liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
+                    color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
+                    all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
 
-                     def clean_input(val):
+                    def clean_input(val):
                         if pd.isna(val) or not isinstance(val, str): return val
                         res = val
                         for e in color_map.values(): res = res.replace(f" {e}", "").replace(e, "").strip()
                         return res
 
-                     used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
-                     used_inputs_departs, used_boxes_departs = {}, {}
-                     used_micros_all = set()
+                    used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
+                    used_inputs_departs, used_boxes_departs = {}, {}
+                    used_micros_all = set()
                     
-                     if "MASTER" in tables_data: used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
+                    if "MASTER" in tables_data: used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
                     
-                     for i in range(1, num_tabs + 1):
+                    for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         used_inputs_departs[t_name] = set(clean_input(x) for x in tables_data[t_name]["Input"].dropna().tolist())
                         used_boxes_departs[t_name] = set(tables_data[t_name]["Boîtier"].dropna().tolist())
                         used_micros_all.update(tables_data[t_name]["Micro / DI"].dropna().tolist())
 
-                     if "MASTER" in tables_data:
+                    if "MASTER" in tables_data:
                         label_master = "MASTER PATCH 40" if max_inputs <= 40 else "MASTER PATCH 60"
                         st.subheader(f"🛠️ {label_master}")
                         
@@ -1470,12 +1470,12 @@ with main_tabs[2]:
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
-                             )
+                            )
                             if not edited_master.equals(tables_data["MASTER"]):
                                 curr_state[mode_key]["MASTER"] = edited_master
                                 st.rerun()
 
-                     for i in range(1, num_tabs + 1):
+                    for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         start_idx = (i-1)*step + 1
                         end_idx = min(i*step, nb_inputs_groupe)
@@ -1492,7 +1492,7 @@ with main_tabs[2]:
                             box_val = tables_data[t_name].at[idx, "Boîtier"]
                             p_val = ""
                             if pd.notna(box_val) and isinstance(box_val, str):
-                                 for emoji in color_map.values():
+                                for emoji in color_map.values():
                                     if emoji in box_val:
                                         p_val = emoji
                                         break
@@ -1509,13 +1509,13 @@ with main_tabs[2]:
                         avail_micros_dep = [m for m in liste_micros if m not in used_micros_all or m in current_micros_dep]
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
-                             edited_dep = st.data_editor(
+                            edited_dep = st.data_editor(
                                 tables_data[t_name],
                                 column_config={
-                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
+                                    "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
                                     "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_dep),
-                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
+                                    "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
@@ -1523,5 +1523,7 @@ with main_tabs[2]:
                             if not edited_dep.equals(tables_data[t_name]):
                                 curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
-                else: st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
-         else: st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+                else: 
+                    st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
+            else: 
+                st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
