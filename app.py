@@ -156,7 +156,7 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
-    
+        
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -564,24 +564,28 @@ with main_tabs[0]:
                                     
                                     marques_normales = [col for col in df.columns if not str(col).endswith("_EASYJOB")]
                                     for brand in marques_normales:
-                                        modeles = df[brand].dropna().astype(str).tolist()
+                                        col_mod_raw = df[brand].tolist()
                                         col_miroir = f"{brand}_EASYJOB"
                                         
-                                        if modeles:
-                                            new_catalog[sheet][brand] = modeles
-                                            new_mapping[sheet][brand] = {}
-                                            
-                                            if col_miroir in df.columns:
-                                                modeles_miroirs = df[col_miroir].astype(str).tolist()
-                                                for i, mod in enumerate(modeles):
-                                                    if i < len(modeles_miroirs) and modeles_miroirs[i] != 'nan' and str(modeles_miroirs[i]).strip() != '':
-                                                        new_mapping[sheet][brand][mod] = str(modeles_miroirs[i]).strip()
-                                                    else:
-                                                        new_mapping[sheet][brand][mod] = f"{brand} {mod}" 
-                                            else:
-                                                for mod in modeles:
+                                        modeles_valides = []
+                                        new_mapping[sheet][brand] = {}
+                                        
+                                        has_miroir = col_miroir in df.columns
+                                        miroirs_raw = df[col_miroir].tolist() if has_miroir else []
+                                        
+                                        for i, val in enumerate(col_mod_raw):
+                                            if pd.notna(val) and str(val).strip() != "" and str(val).strip().lower() != "nan":
+                                                mod = str(val).strip()
+                                                modeles_valides.append(mod)
+                                                
+                                                if has_miroir and i < len(miroirs_raw) and pd.notna(miroirs_raw[i]) and str(miroirs_raw[i]).strip() != "" and str(miroirs_raw[i]).strip().lower() != "nan":
+                                                    new_mapping[sheet][brand][mod] = str(miroirs_raw[i]).strip()
+                                                else:
                                                     new_mapping[sheet][brand][mod] = f"{brand} {mod}"
                                                     
+                                        if modeles_valides:
+                                            new_catalog[sheet][brand] = modeles_valides
+                                            
                                 st.session_state.custom_catalog = new_catalog
                                 st.session_state.easyjob_mapping = new_mapping
                                 st.success(f"Catalogue chargé et mapping EasyJob configuré !")
@@ -688,7 +692,7 @@ with main_tabs[0]:
                             if not arts or df_input.empty: return pd.DataFrame()
                             mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                             for a in arts: 
-                                if a not in mat.columns: mat[a] = 0
+                               if a not in mat.columns: mat[a] = 0
                             res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
                             df_res = res.reset_index()
                             df_res.columns = list(df_res.columns[:-1]) + ["Total"]
@@ -703,8 +707,8 @@ with main_tabs[0]:
                         else:
                             all_days_res = []
                             for j in df_base["Jour"].unique():
-                                res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                                 res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                                 if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
                             if all_days_res:
                                 final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                                 for cat in final["Catégorie"].unique():
@@ -719,8 +723,8 @@ with main_tabs[0]:
                             dico_besoins[" "] = pd.DataFrame() 
                             dico_besoins["--- MATERIEL APPORTE PAR LES ARTISTES ---"] = pd.DataFrame()
                             for art in artistes_apporte:
-                                items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
-                                dico_besoins[f"FOURNI PAR : {art}"] = items_art
+                                 items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
+                                 dico_besoins[f"FOURNI PAR : {art}"] = items_art
                         
                         titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                         if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
@@ -732,8 +736,8 @@ with main_tabs[0]:
                         
                         notes_list_text = []
                         for a in arts_scope:
-                            n = st.session_state.notes_artistes.get(a, "").strip()
-                            if n: notes_list_text.append(f"- {a} :\n{n}")
+                             n = st.session_state.notes_artistes.get(a, "").strip()
+                             if n: notes_list_text.append(f"- {a} :\n{n}")
                         if notes_list_text: dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
 
                         contact_texts = []
@@ -742,8 +746,8 @@ with main_tabs[0]:
                             if c_data:
                                 lines = [f"--- CONTACTS : {a} ---"]
                                 for role_code, role_name in [("RG", "Régie générale"), ("RT", "Régie technique"), ("FOH", "Régie SON FOH"), ("MON", "Régie SON MON"), ("LUM", "Régie LUMIERE"), ("VID", "Régie VIDEO")]:
-                                    line = format_contact(role_name, c_data.get(role_code, {}))
-                                    if line: lines.append(line)
+                                     line = format_contact(role_name, c_data.get(role_code, {}))
+                                     if line: lines.append(line)
                                 if len(lines) > 1: contact_texts.append("\n".join(lines))
                         if contact_texts:
                             dico_besoins["--- REPERTOIRE CONTACTS ARTISTES ---"] = "\n\n".join(contact_texts)
@@ -785,11 +789,11 @@ with main_tabs[0]:
                         else:
                             all_days_res = []
                             for j in df_base_ej["Jour"].unique():
-                                res_j = calcul_pic_ej(df_base_ej[df_base_ej["Jour"] == j], j, s_s_m)
-                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                                 res_j = calcul_pic_ej(df_base_ej[df_base_ej["Jour"] == j], j, s_s_m)
+                                 if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
                             if all_days_res:
-                                final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
-                                for _, row in final.iterrows():
+                                 final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                                 for _, row in final.iterrows():
                                     qty = row["Max_Periode"]
                                     if qty > 0:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
@@ -1155,7 +1159,7 @@ with main_tabs[2]:
                         if sel_file != "-- Choisir un fichier --":
                             pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
                             b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
+                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none;color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
                             st.markdown(pdf_link, unsafe_allow_html=True)
 
             if sel_a:
@@ -1190,7 +1194,7 @@ with main_tabs[2]:
                             "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                             "Métier": st.column_config.SelectboxColumn("Métier", options=["SON", "BACKLINE", "LUMIERE", "VIDEO", "STRUCTURE", "TOURBUS"], required=True),
                             "Emplacement": st.column_config.SelectboxColumn("Emplacement", options=["FOH", "JARDIN", "COUR", "LOINTAIN"], required=True)
-                        },
+                         },
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
@@ -1198,18 +1202,18 @@ with main_tabs[2]:
                     )
                     
                     if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
-                        st.session_state.alim_elec = st.session_state.alim_elec[
+                         st.session_state.alim_elec = st.session_state.alim_elec[
                             ~((st.session_state.alim_elec["Groupe"] == sel_a) &
                               (st.session_state.alim_elec["Scène"] == sel_s) &
                               (st.session_state.alim_elec["Jour"] == sel_j))
                         ]
-                        if not edited_alim.empty:
+                         if not edited_alim.empty:
                             new_alim = edited_alim.copy()
                             new_alim["Groupe"] = sel_a
                             new_alim["Scène"] = sel_s
                             new_alim["Jour"] = sel_j
                             st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
-                        st.rerun()
+                         st.rerun()
 
                 st.divider()
                 st.subheader(f"📝 Informations complémentaires / Matériel apporté : {sel_a}")
@@ -1267,30 +1271,30 @@ with main_tabs[2]:
                         display_modeles = [f"🔹 {str(m).replace('//','').strip()} 🔹" if str(m).startswith("//") else m for m in raw_modeles]
                         v_mod = c_mod.selectbox("Modèle", display_modeles)
                     else:
-                        v_mod = c_mod.text_input("Modèle", "SM58")
+                         v_mod = c_mod.text_input("Modèle", "SM58")
                     v_qte = c_qte.number_input("Qté", 1, 500, 1, key="qte_classique")
                     v_app = c_app.checkbox("Artiste Apporte", key="app_classique")
                     if st.button("Ajouter au Patch"):
-                        if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")): st.error("⛔ Impossible d'ajouter un titre de section.")
-                        else:
+                         if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")): st.error("⛔ Impossible d'ajouter un titre de section.")
+                         else:
                             mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                             if not st.session_state.fiches_tech[mask].empty:
                                 st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                             else:
-                                new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
-                                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
+                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
                             st.rerun()
 
                 st.divider()
                 if st.session_state.delete_confirm_patch_idx is not None:
                     pidx = st.session_state.delete_confirm_patch_idx
                     with st.status("⚠️ Confirmation", expanded=True):
-                        st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
-                        if st.button("✅ Confirmer"):
+                         st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
+                         if st.button("✅ Confirmer"):
                             st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
-                        if st.button("❌ Annuler"):
+                         if st.button("❌ Annuler"):
                             st.session_state.delete_confirm_patch_idx = None
                             st.rerun()
 
@@ -1302,10 +1306,10 @@ with main_tabs[2]:
                         df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
-                    if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
+                     if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
                         st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
                         st.rerun()
-                    if not edited_patch.equals(df_patch_art):
+                     if not edited_patch.equals(df_patch_art):
                         st.session_state.fiches_tech.update(edited_patch)
                         st.rerun()
 
@@ -1315,14 +1319,14 @@ with main_tabs[2]:
                     liste_art = plan_trié["Artiste"].tolist()
                     df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == sel_s) & (st.session_state.fiches_tech["Jour"] == sel_j) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                     if not df_b.empty:
-                        matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                        for a in liste_art: 
+                         matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                         for a in liste_art: 
                             if a not in matrice.columns: matrice[a] = 0
-                        matrice = matrice[liste_art]
-                        res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
-                        df_res = res.reset_index()
-                        df_res.columns = list(df_res.columns[:-1]) + ["Total"]
-                        st.dataframe(df_res, use_container_width=True, hide_index=True)
+                         matrice = matrice[liste_art]
+                         res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
+                         df_res = res.reset_index()
+                         df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                         st.dataframe(df_res, use_container_width=True, hide_index=True)
 
     # --- SOUS-ONGLET 2 : CREATION DES PATCH IN/OUT ---
     with sub_tabs_tech[1]:
@@ -1336,23 +1340,23 @@ with main_tabs[2]:
                 sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
             with f3_p:
                 artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
-                sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
+                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
                 if sel_a_p and sel_a_p in st.session_state.riders_stockage:
                     riders_groupe_p = list(st.session_state.riders_stockage[sel_a_p].keys())
                     if riders_groupe_p:
-                        sel_file_p = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_p, key=f"view_p_{sel_a_p}")
-                        if sel_file_p != "-- Choisir un fichier --":
+                         sel_file_p = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_p, key=f"view_p_{sel_a_p}")
+                         if sel_file_p != "-- Choisir un fichier --":
                             pdf_data_p = st.session_state.riders_stockage[sel_a_p][sel_file_p]
                             b64_pdf_p = base64.b64encode(pdf_data_p).decode('utf-8')
-                            pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none; color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
+                            pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none;color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
                             st.markdown(pdf_link_p, unsafe_allow_html=True)
 
             if sel_a_p:
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
-                def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
 
                 max_inputs, max_ear, max_mon_s, max_mon_m = 0, 0, 0, 0
 
@@ -1363,7 +1367,7 @@ with main_tabs[2]:
                     max_mon_s = get_circ(a1, "mon_stereo")
                     max_mon_m = get_circ(a1, "mon_mono")
                 elif len(liste_art_patch) > 1:
-                    for i in range(len(liste_art_patch) - 1):
+                     for i in range(len(liste_art_patch) - 1):
                         a1, a2 = liste_art_patch[i], liste_art_patch[i+1]
                         max_inputs = max(max_inputs, get_circ(a1, "inputs") + get_circ(a2, "inputs"))
                         max_ear = max(max_ear, get_circ(a1, "ear_stereo") + get_circ(a2, "ear_stereo"))
@@ -1382,23 +1386,23 @@ with main_tabs[2]:
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
                 
                 if nb_inputs_groupe > 0:
-                    col_mode1, col_mode2 = st.columns([1, 3])
-                    with col_mode1: mode_patch = st.radio("Saisie :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
+                     col_mode1, col_mode2 = st.columns([1, 3])
+                     with col_mode1: mode_patch = st.radio("Saisie :", ["PATCH 12N", "PATCH 20H"], horizontal=True)
                     
-                    step = 12 if mode_patch == "PATCH 12N" else 20
-                    prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
-                    num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
+                     step = 12 if mode_patch == "PATCH 12N" else 20
+                     prefix_box = "B12M/F" if mode_patch == "PATCH 12N" else "B20"
+                     num_tabs = (nb_inputs_groupe // step) + (1 if nb_inputs_groupe % step > 0 else 0)
 
-                    if sel_a_p not in st.session_state.patches_io: st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
-                    curr_state = st.session_state.patches_io[sel_a_p]
+                     if sel_a_p not in st.session_state.patches_io: st.session_state.patches_io[sel_a_p] = {"12N": None, "20H": None, "nb_inputs": 0}
+                     curr_state = st.session_state.patches_io[sel_a_p]
                     
-                    if curr_state["nb_inputs"] != nb_inputs_groupe:
+                     if curr_state["nb_inputs"] != nb_inputs_groupe:
                         curr_state["12N"], curr_state["20H"] = None, None
                         curr_state["nb_inputs"] = nb_inputs_groupe
                         
-                    mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
+                     mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
 
-                    if curr_state[mode_key] is None:
+                     if curr_state[mode_key] is None:
                         tables = {}
                         if mode_patch == "PATCH 20H" and max_inputs <= 60:
                             tables["MASTER"] = pd.DataFrame({
@@ -1412,40 +1416,40 @@ with main_tabs[2]:
                             })
                         curr_state[mode_key] = tables
 
-                    tables_data = curr_state[mode_key]
-                    df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
-                    excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
+                     tables_data = curr_state[mode_key]
+                     df_mat = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_p]
+                     excl_micros = ["EAR MONITOR", "PIEDS MICROS", "MONITOR", "PRATICABLE & CADRE ROULETTE", "REGIE", "MULTI"]
                     
-                    micros_instances = []
-                    df_micros = df_mat[~df_mat["Catégorie"].isin(excl_micros)]
-                    for _, row in df_micros.iterrows():
+                     micros_instances = []
+                     df_micros = df_mat[~df_mat["Catégorie"].isin(excl_micros)]
+                     for _, row in df_micros.iterrows():
                         qty = int(row["Quantité"])
                         for i in range(1, qty + 1): micros_instances.append(f"{row['Modèle']} #{i}")
                     
-                    liste_micros = [None] + sorted(micros_instances)
-                    liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
-                    color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
-                    all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
+                     liste_micros = [None] + sorted(micros_instances)
+                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
+                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
+                     all_boxes = [None] + [f"{prefix_box} {j} {color_map[j]}" for j in range(1, 10)]
 
-                    def clean_input(val):
+                     def clean_input(val):
                         if pd.isna(val) or not isinstance(val, str): return val
                         res = val
                         for e in color_map.values(): res = res.replace(f" {e}", "").replace(e, "").strip()
                         return res
 
-                    used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
-                    used_inputs_departs, used_boxes_departs = {}, {}
-                    used_micros_all = set()
+                     used_inputs_master = set(tables_data["MASTER"]["Input"].dropna().tolist()) if "MASTER" in tables_data else set()
+                     used_inputs_departs, used_boxes_departs = {}, {}
+                     used_micros_all = set()
                     
-                    if "MASTER" in tables_data: used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
+                     if "MASTER" in tables_data: used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
                     
-                    for i in range(1, num_tabs + 1):
+                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         used_inputs_departs[t_name] = set(clean_input(x) for x in tables_data[t_name]["Input"].dropna().tolist())
                         used_boxes_departs[t_name] = set(tables_data[t_name]["Boîtier"].dropna().tolist())
                         used_micros_all.update(tables_data[t_name]["Micro / DI"].dropna().tolist())
 
-                    if "MASTER" in tables_data:
+                     if "MASTER" in tables_data:
                         label_master = "MASTER PATCH 40" if max_inputs <= 40 else "MASTER PATCH 60"
                         st.subheader(f"🛠️ {label_master}")
                         
@@ -1466,12 +1470,12 @@ with main_tabs[2]:
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
-                            )
+                             )
                             if not edited_master.equals(tables_data["MASTER"]):
                                 curr_state[mode_key]["MASTER"] = edited_master
                                 st.rerun()
 
-                    for i in range(1, num_tabs + 1):
+                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         start_idx = (i-1)*step + 1
                         end_idx = min(i*step, nb_inputs_groupe)
@@ -1488,7 +1492,7 @@ with main_tabs[2]:
                             box_val = tables_data[t_name].at[idx, "Boîtier"]
                             p_val = ""
                             if pd.notna(box_val) and isinstance(box_val, str):
-                                for emoji in color_map.values():
+                                 for emoji in color_map.values():
                                     if emoji in box_val:
                                         p_val = emoji
                                         break
@@ -1505,13 +1509,13 @@ with main_tabs[2]:
                         avail_micros_dep = [m for m in liste_micros if m not in used_micros_all or m in current_micros_dep]
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
-                            edited_dep = st.data_editor(
+                             edited_dep = st.data_editor(
                                 tables_data[t_name],
                                 column_config={
-                                    "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
+                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
                                     "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_dep),
-                                    "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
+                                     "Stand": st.column_config.SelectboxColumn("Stand", options=liste_stands),
                                     "48V": st.column_config.CheckboxColumn("48V")
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
@@ -1520,4 +1524,4 @@ with main_tabs[2]:
                                 curr_state[mode_key][t_name] = edited_dep
                                 st.rerun()
                 else: st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
-        else: st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+         else: st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
