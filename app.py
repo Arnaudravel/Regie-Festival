@@ -13,6 +13,15 @@ try:
 except ModuleNotFoundError:
     px = None
 
+# --- FILET DE SÉCURITÉ POUR MATPLOTLIB / NUMPY (EXPORT PDF VISUEL) ---
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import numpy as np
+    MATPLOTLIB_AVAILABLE = True
+except ModuleNotFoundError:
+    MATPLOTLIB_AVAILABLE = False
+
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Regie-Festival", layout="wide", initial_sidebar_state="collapsed")
 
@@ -357,6 +366,84 @@ def format_contact(role, data):
     if not (nom or prenom or tel or mail): return ""
     return f"{role} : {prenom} {nom} - {tel} - {mail}".strip(" -")
 
+# --- HELPER POUR LE PLANNING VISUEL (A3 PORTRAIT) ---
+def generer_pdf_planning_visuel(df_scene, titre):
+    if not MATPLOTLIB_AVAILABLE: return None
+    
+    phases_def = [
+        ("Load IN", "Load IN Début", "Load IN Fin", "#4a90e2"),
+        ("Inst Off Stage", "Inst Off Début", "Inst Off Fin", "#f39c12"),
+        ("Inst On Stage", "Inst On Début", "Inst On Fin", "#e67e22"),
+        ("Balance", "Balance Début", "Balance Fin", "#8e44ad"),
+        ("Change Over", "Change Over Début", "Change Over Fin", "#27ae60"),
+        ("Show", "Show Début", "Show Fin", "#e74c3c")
+    ]
+    
+    events = []
+    for _, row in df_scene.iterrows():
+        art = row["Artiste"]
+        for p_name, c_deb, c_fin, color in phases_def:
+            deb = row.get(c_deb, "-- none --")
+            fin = row.get(c_fin, "-- none --")
+            if deb != "-- none --" and fin != "-- none --":
+                start_h = time_to_hours(deb)
+                end_h = time_to_hours(fin)
+                if end_h < start_h: end_h += 24
+                events.append({"artiste": art, "phase": p_name, "start": start_h, "end": end_h, "color": color})
+    
+    if not events: return None
+    
+    fig, ax = plt.subplots(figsize=(11.7, 16.5)) # Format A3 Portrait
+    
+    artistes = list(dict.fromkeys([e["artiste"] for e in events]))
+    x_positions = {artiste: i for i, artiste in enumerate(artistes)}
+    
+    min_hour = np.floor(min([e["start"] for e in events]))
+    max_hour = np.ceil(max([e["end"] for e in events]))
+    if max_hour <= min_hour: max_hour = min_hour + 1
+
+    for item in events:
+        x = x_positions[item["artiste"]]
+        y_start = item["start"]
+        duration = item["end"] - item["start"]
+        
+        rect = patches.Rectangle((x - 0.4, y_start), 0.8, duration, facecolor=item["color"], edgecolor='white', linewidth=1)
+        ax.add_patch(rect)
+        
+        ax.text(x, y_start + duration/2, item["phase"], ha='center', va='center', color='white', fontsize=10, fontweight='bold', clip_on=True)
+
+    y_ticks = np.arange(min_hour, max_hour + 0.25, 0.25)
+    def format_hour(val):
+        h = int(val) % 24
+        m = int(round((val - int(val)) * 60))
+        if m == 60: h, m = (h + 1) % 24, 0
+        return f"{h:02d}:{m:02d}"
+        
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels([format_hour(y) for y in y_ticks])
+    ax.invert_yaxis()
+    ax.set_ylabel("Heure", fontsize=12)
+    
+    ax.set_xticks(range(len(artistes)))
+    ax.set_xticklabels(artistes, fontsize=12, fontweight='bold')
+    ax.set_xlabel("Artistes", fontsize=12, labelpad=15)
+    
+    ax.grid(axis='y', linestyle='-', color='#ecf0f1', alpha=0.7)
+    ax.set_xlim(-0.5, len(artistes) - 0.5)
+    ax.set_ylim(max_hour, min_hour)
+    
+    plt.title(titre, fontsize=18, pad=20, fontweight='bold')
+    
+    from matplotlib.lines import Line2D
+    legend_elements = [Line2D([0], [0], color=c, lw=6, label=p) for p, c in set((e["phase"], e["color"]) for e in events)]
+    ax.legend(handles=legend_elements, title="Phases", bbox_to_anchor=(1.02, 1), loc='upper left')
+    
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="pdf", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
 
@@ -523,22 +610,32 @@ with main_tabs[0]:
                 
                 if st.button("Générer PDF Planning", use_container_width=True):
                     df_p = st.session_state.planning.copy()
-                    dico_sections = {}
-                    jours_a_traiter = [s_j_p] if m_plan == "Par Jour & Scène" else l_jours
-                    scenes_a_traiter = [s_s_p] if m_plan == "Par Jour & Scène" else l_scenes
                     
-                    for j in jours_a_traiter:
-                        for s in scenes_a_traiter:
-                            sub_df = df_p[(df_p["Jour"] == str(j)) & (df_p["Scène"] == s)]
-                            df_grid = build_planning_grid(sub_df)
-                            if not df_grid.empty:
-                                dico_sections[f"JOUR : {j} | SCENE : {s}"] = df_grid
-                    
-                    orient = 'L' if m_plan == "Global" else 'P'
-                    fmt = 'A3' if m_plan == "Global" else 'A4'
-                    
-                    pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
-                    st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
+                    if m_plan == "Par Jour & Scène" and MATPLOTLIB_AVAILABLE:
+                        sub_df = df_p[(df_p["Jour"] == str(s_j_p)) & (df_p["Scène"] == s_s_p)]
+                        titre = f"Planning Vertical {s_s_p} - {s_j_p}"
+                        pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
+                        if pdf_bytes:
+                            st.download_button("📥 Télécharger PDF Planning Visuel (A3)", pdf_bytes, f"planning_visuel_{s_j_p}.pdf", "application/pdf")
+                        else:
+                            st.warning("Aucune donnée pour générer le graphique.")
+                    else:
+                        dico_sections = {}
+                        jours_a_traiter = [s_j_p] if m_plan == "Par Jour & Scène" else l_jours
+                        scenes_a_traiter = [s_s_p] if m_plan == "Par Jour & Scène" else l_scenes
+                        
+                        for j in jours_a_traiter:
+                            for s in scenes_a_traiter:
+                                sub_df = df_p[(df_p["Jour"] == str(j)) & (df_p["Scène"] == s)]
+                                df_grid = build_planning_grid(sub_df)
+                                if not df_grid.empty:
+                                    dico_sections[f"JOUR : {j} | SCENE : {s}"] = df_grid
+                        
+                        orient = 'L' if m_plan == "Global" else 'P'
+                        fmt = 'A3' if m_plan == "Global" else 'A4'
+                        
+                        pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
+                        st.download_button("📥 Télécharger PDF Planning (Tableau)", pdf_bytes, "planning.pdf", "application/pdf")
 
         with cex2:
             st.subheader("📦 Export Besoins")
@@ -639,7 +736,6 @@ with main_tabs[0]:
                             if n: notes_list_text.append(f"- {a} :\n{n}")
                         if notes_list_text: dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
 
-                        # AJOUT DES CONTACTS DES GROUPES DANS L'EXPORT BESOINS
                         contact_texts = []
                         for a in arts_scope:
                             c_data = st.session_state.contacts_artistes.get(a, {})
@@ -923,24 +1019,38 @@ with main_tabs[1]:
                             ))
                 
                 if gantt_data:
-                    if px is not None:
+                    if px is not None and MATPLOTLIB_AVAILABLE:
+                        import numpy as np
                         df_gantt = pd.DataFrame(gantt_data)
+                        
+                        # Couleurs calquées sur l'export PDF graphique
+                        color_map = {
+                            "Load IN": "#4a90e2", "Inst Off Stage": "#f39c12", 
+                            "Inst On Stage": "#e67e22", "Balance": "#8e44ad", 
+                            "Change Over": "#27ae60", "Show": "#e74c3c"
+                        }
+                        
                         fig = px.bar(
                             df_gantt, x="Artiste", y="Duration_hours", base="Start_hours", color="Phase",
+                            color_discrete_map=color_map,
                             hover_data={"Start_str": True, "End_str": True, "Duration_hours": False, "Start_hours": False},
                             text="Phase", title=f"Planning Vertical {s_s_g} - {s_j_g}"
                         )
+                        
+                        y_ticks_ui = np.arange(0, 25, 0.25)
+                        tick_texts_ui = [f"{int(h):02d}:{int(round((h - int(h)) * 60)):02d}" for h in y_ticks_ui]
+                        
                         fig.update_yaxes(
                             autorange="reversed",
                             tickmode="array",
-                            tickvals=list(range(25)),
-                            ticktext=[f"{h:02d}:00" for h in range(25)],
+                            tickvals=y_ticks_ui,
+                            ticktext=tick_texts_ui,
                             title="Heure"
                         )
                         fig.update_layout(barmode="overlay")
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.error("⚠️ La bibliothèque Plotly est manquante pour afficher le graphique. Ajoutez 'plotly' dans votre fichier requirements.txt.")
+                        st.error("⚠️ Les bibliothèques 'plotly', 'matplotlib' ou 'numpy' sont manquantes.")
                 else:
                     st.info("Aucune plage horaire valide renseignée pour cette date et cette scène.")
             else:
@@ -1019,7 +1129,6 @@ with main_tabs[1]:
                         st.session_state.contacts_artistes[a][code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
-
 
 # ==========================================
 # ONGLET 3 : TECHNIQUE
