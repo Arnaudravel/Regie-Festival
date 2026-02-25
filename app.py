@@ -938,6 +938,42 @@ with main_tabs[1]:
                         )
                         fig.update_layout(barmode="overlay")
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        # --- EXPORT PDF DU GRAPHIQUE ---
+                        try:
+                            # Test if kaleido is available implicitly
+                            import kaleido
+                            img_bytes = fig.to_image(format="png", engine="kaleido", width=1200, height=800)
+                            
+                            pdf_gantt = FestivalPDF(orientation='L', unit='mm', format='A4')
+                            pdf_gantt.add_page()
+                            pdf_gantt.set_font("helvetica", "B", 16)
+                            pdf_gantt.cell(0, 10, f"PLANNING VISUEL : {s_s_g} - {s_j_g}", ln=True, align='C')
+                            pdf_gantt.ln(5)
+                            
+                            import tempfile
+                            import os
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+                                tmp_file.write(img_bytes)
+                                tmp_path = tmp_file.name
+                                
+                            pdf_gantt.image(tmp_path, x=10, y=30, w=277)
+                            os.unlink(tmp_path)
+                            
+                            pdf_out = pdf_gantt.output(dest='S').encode('latin-1')
+                            
+                            st.download_button(
+                                label="📥 Télécharger ce graphique en PDF",
+                                data=pdf_out,
+                                file_name=f"Planning_Visuel_{s_s_g}_{s_j_g}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        except ImportError:
+                            st.info("💡 Pour exporter ce graphique en PDF, ajoutez 'kaleido' à votre fichier requirements.txt.")
+                        except Exception as e:
+                            st.error(f"Erreur lors de la génération du PDF visuel : {e}")
+
                     else:
                         st.error("⚠️ La bibliothèque Plotly est manquante pour afficher le graphique. Ajoutez 'plotly' dans votre fichier requirements.txt.")
                 else:
