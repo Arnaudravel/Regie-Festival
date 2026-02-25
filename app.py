@@ -165,31 +165,44 @@ class FestivalPDF(FPDF):
     def dessiner_planning_grille(self, df_grid):
         if df_grid.empty: return
         self.set_font("helvetica", "B", 10)
+        
+        col_w = [25, 25, 45, 0]
+        headers = ["DÉBUT", "FIN", "PHASE", "ARTISTE"]
+        
         self.set_fill_color(200, 200, 200)
-        self.cell(35, 8, "HEURE", border=1, fill=True, align='C')
-        self.cell(0, 8, "ÉVÉNEMENT", border=1, fill=True, align='C')
+        for i, h in enumerate(headers):
+            w = col_w[i] if col_w[i] != 0 else (self.w - 20 - sum(col_w[:3]))
+            self.cell(w, 8, h, border=1, fill=True, align='C')
         self.ln()
         
-        self.set_font("helvetica", "", 9)
+        self.set_font("helvetica", "B", 9)
+        
         for _, row in df_grid.iterrows():
             if self.get_y() > (self.h - 15): self.add_page()
-            heure = str(row['Heure'])
-            activite = str(row['Activité'])
+            deb = str(row['Heure Début'])
+            fin = str(row['Heure Fin'])
+            act = str(row['Activité'])
+            art = str(row['Artiste']).encode('latin-1', 'replace').decode('latin-1')
             
-            if not activite.strip():
-                # Ligne Grisée pour les temps de pause (Optionnel selon nouveau code)
-                self.set_fill_color(240, 240, 240)
-                self.set_text_color(150, 150, 150)
-                self.cell(35, 7, heure, border=1, fill=True, align='C')
-                self.cell(0, 7, "", border=1, fill=True, align='C')
-            else:
-                # Ligne Blanche pour les événements
-                self.set_fill_color(255, 255, 255)
-                self.set_text_color(0, 0, 0)
-                self.cell(35, 7, heure, border=1, fill=True, align='C')
-                act_safe = activite.encode('latin-1', 'replace').decode('latin-1')
-                self.cell(0, 7, "  " + act_safe, border=1, fill=True, align='L')
+            # Couleurs dynamiques selon la phase technique
+            act_upper = act.upper()
+            if "LOAD IN" in act_upper: self.set_fill_color(180, 220, 255)
+            elif "INST OFF" in act_upper: self.set_fill_color(255, 230, 180)
+            elif "INST ON" in act_upper: self.set_fill_color(255, 200, 120)
+            elif "BALANCE" in act_upper: self.set_fill_color(180, 240, 180)
+            elif "CHANGE OVER" in act_upper: self.set_fill_color(255, 250, 180)
+            elif "SHOW" in act_upper: self.set_fill_color(255, 180, 180)
+            else: self.set_fill_color(255, 255, 255)
+            
+            self.set_text_color(0, 0, 0)
+            w3 = self.w - 20 - sum(col_w[:3])
+            
+            self.cell(col_w[0], 7, deb, border=1, fill=True, align='C')
+            self.cell(col_w[1], 7, fin, border=1, fill=True, align='C')
+            self.cell(col_w[2], 7, act, border=1, fill=True, align='C')
+            self.cell(w3, 7, "  " + art, border=1, fill=True, align='L')
             self.ln()
+            
         self.set_text_color(0, 0, 0)
         self.ln(5)
 
@@ -284,22 +297,16 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
 # --- HELPERS CHRONO ---
 def time_to_hours(t_str):
     if t_str == "-- none --" or not t_str: return -1
-    try:
-        h, m = map(int, str(t_str).split(':'))
-        return h + m/60.0
-    except Exception:
-        return -1
+    h, m = map(int, t_str.split(':'))
+    return h + m/60.0
 
 def time_to_minutes(t_str):
     if t_str == "-- none --" or not t_str: return -1
-    try:
-        h, m = map(int, str(t_str).split(':'))
-        # On décale pour que 06:00 soit le repère 0
-        shifted_h = h - 6
-        if shifted_h < 0: shifted_h += 24
-        return shifted_h * 60 + m
-    except Exception:
-        return -1
+    h, m = map(int, t_str.split(':'))
+    # On décale pour que 06:00 soit le repère 0
+    shifted_h = h - 6
+    if shifted_h < 0: shifted_h += 24
+    return shifted_h * 60 + m
 
 def build_planning_grid(df_scene):
     events = []
@@ -312,30 +319,25 @@ def build_planning_grid(df_scene):
         ("Show", "Show Début", "Show Fin")
     ]
     for _, row in df_scene.iterrows():
-        art = str(row.get("Artiste", "Inconnu"))
+        art = row["Artiste"]
         for p_name, c_deb, c_fin in phases:
-            deb = str(row.get(c_deb, "-- none --"))
-            fin = str(row.get(c_fin, "-- none --"))
-            if deb != "-- none --" and fin != "-- none --" and ":" in deb:
-                try:
-                    start_m = time_to_minutes(deb)
-                    if start_m >= 0:
-                        events.append({
-                            "start_m": start_m,
-                            "Heure": f"{deb} - {fin}",
-                            "Activité": f"{art} - {p_name}"
-                        })
-                except Exception:
-                    pass
-
-    if not events:
-        return pd.DataFrame(columns=["Heure", "Activité"])
-
-    # Tri chronologique selon les minutes décalées
-    events.sort(key=lambda x: x["start_m"])
+            deb = row.get(c_deb, "-- none --")
+            fin = row.get(c_fin, "-- none --")
+            if deb != "-- none --" and fin != "-- none --":
+                events.append({
+                    "Heure Début": deb,
+                    "Heure Fin": fin,
+                    "Activité": p_name,
+                    "Artiste": art,
+                    "_start_val": time_to_minutes(deb)
+                })
     
-    grid_data = [{"Heure": e["Heure"], "Activité": e["Activité"]} for e in events]
-    return pd.DataFrame(grid_data)
+    if not events:
+        return pd.DataFrame(columns=["Heure Début", "Heure Fin", "Activité", "Artiste"])
+    
+    df_events = pd.DataFrame(events)
+    df_events = df_events.sort_values(by=["_start_val", "Heure Fin"]).drop(columns=["_start_val"])
+    return df_events
 
 def compute_times(deb, fin, dur):
     if deb != "-- none --":
@@ -534,7 +536,7 @@ with main_tabs[0]:
                     
                     orient = 'L' if m_plan == "Global" else 'P'
                     fmt = 'A3' if m_plan == "Global" else 'A4'
-
+                    
                     pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
                     st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
 
@@ -913,13 +915,12 @@ with main_tabs[1]:
                         if deb != "-- none --" and fin != "-- none --":
                             start_h = time_to_hours(deb)
                             end_h = time_to_hours(fin)
-                            if start_h >= 0 and end_h >= 0:
-                                if end_h < start_h: end_h += 24
-                                dur_h = end_h - start_h
-                                gantt_data.append(dict(
-                                    Artiste=art, Phase=phase_name, Start_hours=start_h, Duration_hours=dur_h, 
-                                    Start_str=deb, End_str=fin
-                                ))
+                            if end_h < start_h: end_h += 24
+                            dur_h = end_h - start_h
+                            gantt_data.append(dict(
+                                Artiste=art, Phase=phase_name, Start_hours=start_h, Duration_hours=dur_h, 
+                                Start_str=deb, End_str=fin
+                            ))
                 
                 if gantt_data:
                     if px is not None:
