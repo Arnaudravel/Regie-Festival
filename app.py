@@ -177,7 +177,7 @@ class FestivalPDF(FPDF):
             activite = str(row['Activité'])
             
             if not activite.strip():
-                # Ligne Grisée pour les temps de pause
+                # Ligne Grisée pour les temps de pause (Optionnel selon nouveau code)
                 self.set_fill_color(240, 240, 240)
                 self.set_text_color(150, 150, 150)
                 self.cell(35, 7, heure, border=1, fill=True, align='C')
@@ -284,58 +284,57 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
 # --- HELPERS CHRONO ---
 def time_to_hours(t_str):
     if t_str == "-- none --" or not t_str: return -1
-    h, m = map(int, t_str.split(':'))
-    return h + m/60.0
+    try:
+        h, m = map(int, str(t_str).split(':'))
+        return h + m/60.0
+    except Exception:
+        return -1
 
 def time_to_minutes(t_str):
     if t_str == "-- none --" or not t_str: return -1
-    h, m = map(int, t_str.split(':'))
-    # On décale pour que 06:00 soit le repère 0
-    shifted_h = h - 6
-    if shifted_h < 0: shifted_h += 24
-    return shifted_h * 60 + m
+    try:
+        h, m = map(int, str(t_str).split(':'))
+        # On décale pour que 06:00 soit le repère 0
+        shifted_h = h - 6
+        if shifted_h < 0: shifted_h += 24
+        return shifted_h * 60 + m
+    except Exception:
+        return -1
 
 def build_planning_grid(df_scene):
-    slots = []
-    for h in range(6, 28): # De 06:00 à 03:00 (27)
-        for m in [0, 30]:
-            if h == 6 and m == 0: continue # On démarre à 06:30
-            real_h = h % 24
-            slots.append(f"{real_h:02d}:{m:02d}")
-            if h == 27 and m == 30: break
-    
-    grid_data = []
+    events = []
     phases = [
         ("Load IN", "Load IN Début", "Load IN Fin"),
-        ("Inst Off", "Inst Off Début", "Inst Off Fin"),
-        ("Inst On", "Inst On Début", "Inst On Fin"),
+        ("Inst Off Stage", "Inst Off Début", "Inst Off Fin"),
+        ("Inst On Stage", "Inst On Début", "Inst On Fin"),
         ("Balance", "Balance Début", "Balance Fin"),
         ("Change Over", "Change Over Début", "Change Over Fin"),
         ("Show", "Show Début", "Show Fin")
     ]
-    for i in range(len(slots)-1):
-        slot_start_str = slots[i]
-        slot_end_str = slots[i+1]
-        slot_start_m = time_to_minutes(slot_start_str)
-        slot_end_m = time_to_minutes(slot_end_str)
-        
-        activities = []
-        for _, row in df_scene.iterrows():
-            art = row["Artiste"]
-            for p_name, c_deb, c_fin in phases:
-                deb = row.get(c_deb, "-- none --")
-                fin = row.get(c_fin, "-- none --")
-                if deb != "-- none --" and fin != "-- none --":
-                    e_start = time_to_minutes(deb)
-                    e_end = time_to_minutes(fin)
-                    # Vérification des croisements (overlaps)
-                    if max(slot_start_m, e_start) < min(slot_end_m, e_end):
-                        activities.append(f"{art} - {p_name}")
-        
-        grid_data.append({
-            "Heure": f"{slot_start_str} - {slot_end_str}",
-            "Activité": " | ".join(activities) if activities else ""
-        })
+    for _, row in df_scene.iterrows():
+        art = str(row.get("Artiste", "Inconnu"))
+        for p_name, c_deb, c_fin in phases:
+            deb = str(row.get(c_deb, "-- none --"))
+            fin = str(row.get(c_fin, "-- none --"))
+            if deb != "-- none --" and fin != "-- none --" and ":" in deb:
+                try:
+                    start_m = time_to_minutes(deb)
+                    if start_m >= 0:
+                        events.append({
+                            "start_m": start_m,
+                            "Heure": f"{deb} - {fin}",
+                            "Activité": f"{art} - {p_name}"
+                        })
+                except Exception:
+                    pass
+
+    if not events:
+        return pd.DataFrame(columns=["Heure", "Activité"])
+
+    # Tri chronologique selon les minutes décalées
+    events.sort(key=lambda x: x["start_m"])
+    
+    grid_data = [{"Heure": e["Heure"], "Activité": e["Activité"]} for e in events]
     return pd.DataFrame(grid_data)
 
 def compute_times(deb, fin, dur):
@@ -535,7 +534,7 @@ with main_tabs[0]:
                     
                     orient = 'L' if m_plan == "Global" else 'P'
                     fmt = 'A3' if m_plan == "Global" else 'A4'
-                    
+
                     pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
                     st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
 
@@ -914,12 +913,13 @@ with main_tabs[1]:
                         if deb != "-- none --" and fin != "-- none --":
                             start_h = time_to_hours(deb)
                             end_h = time_to_hours(fin)
-                            if end_h < start_h: end_h += 24
-                            dur_h = end_h - start_h
-                            gantt_data.append(dict(
-                                Artiste=art, Phase=phase_name, Start_hours=start_h, Duration_hours=dur_h, 
-                                Start_str=deb, End_str=fin
-                            ))
+                            if start_h >= 0 and end_h >= 0:
+                                if end_h < start_h: end_h += 24
+                                dur_h = end_h - start_h
+                                gantt_data.append(dict(
+                                    Artiste=art, Phase=phase_name, Start_hours=start_h, Duration_hours=dur_h, 
+                                    Start_str=deb, End_str=fin
+                                ))
                 
                 if gantt_data:
                     if px is not None:
@@ -1080,11 +1080,11 @@ with main_tabs[2]:
                             "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                             "Métier": st.column_config.SelectboxColumn("Métier", options=["SON", "BACKLINE", "LUMIERE", "VIDEO", "STRUCTURE", "TOURBUS"], required=True),
                             "Emplacement": st.column_config.SelectboxColumn("Emplacement", options=["FOH", "JARDIN", "COUR", "LOINTAIN"], required=True)
-                         },
+                        },
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
-                         key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
+                        key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                     )
                     
                     if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
