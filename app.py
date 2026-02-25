@@ -41,11 +41,11 @@ st.components.v1.html(
     width=0
 )
 
-# --- HELPER : LISTE DES HEURES ---
+# --- HELPER : LISTE DES HEURES (PAS DE 5 MIN) ---
 def get_time_options():
     times = ["-- none --"]
     for h in range(24):
-        for m in (0, 15, 30, 45):
+        for m in range(0, 60, 5):
             times.append(f"{h:02d}:{m:02d}")
     return times
 
@@ -65,7 +65,6 @@ cols_planning = [
 if 'planning' not in st.session_state:
     st.session_state.planning = pd.DataFrame(columns=cols_planning)
 else:
-    # Mise à jour de compatibilité si un ancien fichier de sauvegarde est chargé
     for col in cols_planning:
         if col not in st.session_state.planning.columns:
             st.session_state.planning[col] = "-- none --"
@@ -155,6 +154,26 @@ class FestivalPDF(FPDF):
             self.ln()
         self.ln(5)
 
+    def dessiner_timeline_pdf(self, df):
+        if df.empty: return
+        self.ln(2)
+        for _, row in df.iterrows():
+            if self.get_y() > (self.h - 20): self.add_page()
+            time_str = f"{row['Heure Début']} - {row['Heure Fin']}"
+            scene_str = f"[{row['Scène']}] " if 'Scène' in df.columns and row['Scène'] else ""
+            event_str = f"{scene_str}{row['Artiste']}  |  {row['Phase']}"
+            
+            time_str = str(time_str).encode('latin-1', 'replace').decode('latin-1')
+            event_str = str(event_str).encode('latin-1', 'replace').decode('latin-1')
+            
+            self.set_fill_color(240, 240, 240)
+            self.set_font("helvetica", "B", 10)
+            self.cell(35, 8, time_str, border=0, fill=True)
+            self.set_font("helvetica", "", 10)
+            self.cell(0, 8, f"  {event_str}", border=0, fill=True, ln=1)
+            self.ln(1)
+        self.ln(5)
+
     def dessiner_tableau_patch(self, df):
         if df.empty: return
         self.set_font("helvetica", "B", 9)
@@ -200,7 +219,7 @@ class FestivalPDF(FPDF):
             self.ln()
         self.ln(5)
 
-def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4'):
+def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4', is_planning=False):
     pdf = FestivalPDF(orientation=orientation, unit='mm', format=format)
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
@@ -212,7 +231,10 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4
             if not data.empty:
                 if pdf.get_y() > (pdf.h - 30): pdf.add_page()
                 pdf.ajouter_titre_section(section)
-                pdf.dessiner_tableau(data)
+                if is_planning:
+                    pdf.dessiner_timeline_pdf(data)
+                else:
+                    pdf.dessiner_tableau(data)
         elif isinstance(data, str) and data.strip():
             if pdf.get_y() > (pdf.h - 30): pdf.add_page()
             pdf.ajouter_titre_section(section)
@@ -240,7 +262,6 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
             
     return pdf.output(dest='S').encode('latin-1')
 
-# --- Helper extraction chronologique plannings ---
 def get_chronological_planning(df_scene):
     events = []
     phases = [
@@ -263,12 +284,26 @@ def get_chronological_planning(df_scene):
                     "Heure Fin": fin if fin != "-- none --" else "",
                     "Artiste": art,
                     "Phase": phase_name,
+                    "Scène": row.get("Scène", ""),
                     "sort_key": sort_time
                 })
     df_events = pd.DataFrame(events)
     if not df_events.empty:
         df_events = df_events.sort_values("sort_key").drop(columns=["sort_key"])
     return df_events
+
+def time_to_hours(t_str):
+    h, m = map(int, t_str.split(':'))
+    return h + m/60.0
+
+def compute_times(deb, fin, dur):
+    if deb != "-- none --":
+        h, m = map(int, deb.split(':'))
+        dt_deb = datetime.datetime(2024, 1, 1, h, m)
+        if dur > 0 and fin == "-- none --":
+            dt_fin = dt_deb + datetime.timedelta(minutes=int(dur))
+            return deb, dt_fin.strftime("%H:%M")
+    return deb, fin
 
 # --- INTERFACE PRINCIPALE ---
 st.title(f"{st.session_state.festival_name} - Gestion Régie")
@@ -282,7 +317,6 @@ main_tabs = st.tabs(["PROJET", "Gestion des artistes / Planning festival", "Tech
 with main_tabs[0]:
     sub_tabs_projet = st.tabs(["Admin & Sauvegarde", "Export"])
     
-    # --- SOUS-ONGLET 1 : ADMIN & SAUVEGARDE ---
     with sub_tabs_projet[0]:
         st.header("🛠️ Administration & Sauvegarde")
         col_adm1, col_adm2 = st.columns(2)
@@ -417,7 +451,6 @@ with main_tabs[0]:
             else:
                 if code_secret: st.warning("Code incorrect")
 
-    # --- SOUS-ONGLET 2 : EXPORT ---
     with sub_tabs_projet[1]:
         st.header("📄 Génération des Exports PDF")
         l_jours = sorted(st.session_state.planning["Jour"].unique())
@@ -447,7 +480,7 @@ with main_tabs[0]:
                     orient = 'L' if m_plan == "Global" else 'P'
                     fmt = 'A3' if m_plan == "Global" else 'A4'
                     
-                    pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt)
+                    pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
                     st.download_button("📥 Télécharger PDF Planning", pdf_bytes, "planning.pdf", "application/pdf")
 
         with cex2:
@@ -606,7 +639,6 @@ with main_tabs[0]:
                         excel_data = output.getvalue()
                         st.download_button("📥 Télécharger Excel", excel_data, "easyjob_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # --- EXPORT PATCH IN/OUT ---
         st.divider()
         st.subheader("🎛️ Export Patch IN / OUT")
         with st.container(border=True):
@@ -661,41 +693,55 @@ with main_tabs[1]:
         r2_1, r2_2, r2_3 = st.columns(3)
         with r2_1:
             st.markdown("**Load IN**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             li_d = c_d.selectbox("Début", time_options, key="li_d")
             li_f = c_f.selectbox("Fin", time_options, key="li_f")
+            li_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="li_dur")
         with r2_2:
             st.markdown("**Installation Off Stage**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             ioff_d = c_d.selectbox("Début", time_options, key="ioff_d")
             ioff_f = c_f.selectbox("Fin", time_options, key="ioff_f")
+            ioff_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="ioff_dur")
         with r2_3:
             st.markdown("**Installation On Stage**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             ion_d = c_d.selectbox("Début", time_options, key="ion_d")
             ion_f = c_f.selectbox("Fin", time_options, key="ion_f")
+            ion_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="ion_dur")
 
         r3_1, r3_2, r3_3 = st.columns(3)
         with r3_1:
             st.markdown("**Balances**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             bal_d = c_d.selectbox("Début", time_options, key="bal_d")
             bal_f = c_f.selectbox("Fin", time_options, key="bal_f")
+            bal_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="bal_dur")
         with r3_2:
             st.markdown("**Change Over**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             co_d = c_d.selectbox("Début", time_options, key="co_d")
             co_f = c_f.selectbox("Fin", time_options, key="co_f")
+            co_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="co_dur")
         with r3_3:
             st.markdown("**Show**")
-            c_d, c_f = st.columns(2)
+            c_d, c_f, c_dur = st.columns(3)
             sh_d = c_d.selectbox("Début", time_options, key="sh_d")
             sh_f = c_f.selectbox("Fin", time_options, key="sh_f")
+            sh_dur = c_dur.number_input("Durée (m)", min_value=0, step=5, key="sh_dur")
 
         pdfs = st.file_uploader("Fiches Techniques (PDF)", accept_multiple_files=True, key=f"upl_{st.session_state.uploader_key}")
         
         if st.button("Valider Artiste", type="primary"):
             if ar:
+                # Calcul de la fin si une durée est fournie
+                li_d, li_f = compute_times(li_d, li_f, li_dur)
+                ioff_d, ioff_f = compute_times(ioff_d, ioff_f, ioff_dur)
+                ion_d, ion_f = compute_times(ion_d, ion_f, ion_dur)
+                bal_d, bal_f = compute_times(bal_d, bal_f, bal_dur)
+                co_d, co_f = compute_times(co_d, co_f, co_dur)
+                sh_d, sh_f = compute_times(sh_d, sh_f, sh_dur)
+
                 new_row = pd.DataFrame([{
                     "Scène": sc, "Jour": str(jo), "Artiste": ar, 
                     "Load IN Début": li_d, "Load IN Fin": li_f,
@@ -769,7 +815,7 @@ with main_tabs[1]:
                         st.rerun()
 
     # --- BLOC 4 : PLANNING QUOTIDIEN ---
-    with st.expander("📅 Planning Quotidien (Gantt)", expanded=True):
+    with st.expander("📅 Planning Quotidien (Visuel Vertical)", expanded=True):
         if not st.session_state.planning.empty:
             l_jours_g = sorted(st.session_state.planning["Jour"].unique())
             cg_1, cg_2 = st.columns(2)
@@ -795,17 +841,31 @@ with main_tabs[1]:
                     deb = row.get(c_deb, "-- none --")
                     fin = row.get(c_fin, "-- none --")
                     if deb != "-- none --" and fin != "-- none --":
-                        start_time = pd.to_datetime(f"2024-01-01 {deb}")
-                        end_time = pd.to_datetime(f"2024-01-01 {fin}")
-                        if end_time < start_time: end_time += pd.Timedelta(days=1)
-                        gantt_data.append(dict(Artiste=art, Phase=phase_name, Début=start_time, Fin=end_time))
+                        start_h = time_to_hours(deb)
+                        end_h = time_to_hours(fin)
+                        if end_h < start_h: end_h += 24
+                        dur_h = end_h - start_h
+                        gantt_data.append(dict(
+                            Artiste=art, Phase=phase_name, Start_hours=start_h, Duration_hours=dur_h, 
+                            Start_str=deb, End_str=fin
+                        ))
             
             if gantt_data:
                 if px is not None:
                     df_gantt = pd.DataFrame(gantt_data)
-                    fig = px.timeline(df_gantt, x_start="Début", x_end="Fin", y="Artiste", color="Phase", title=f"Planning {s_s_g} - {s_j_g}")
-                    fig.update_yaxes(autorange="reversed")
-                    fig.update_layout(xaxis=dict(tickformat="%H:%M"))
+                    fig = px.bar(
+                        df_gantt, x="Artiste", y="Duration_hours", base="Start_hours", color="Phase",
+                        hover_data={"Start_str": True, "End_str": True, "Duration_hours": False, "Start_hours": False},
+                        text="Phase", title=f"Planning Vertical {s_s_g} - {s_j_g}"
+                    )
+                    fig.update_yaxes(
+                        autorange="reversed",
+                        tickmode="array",
+                        tickvals=list(range(25)),
+                        ticktext=[f"{h:02d}:00" for h in range(25)],
+                        title="Heure"
+                    )
+                    fig.update_layout(barmode="overlay")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.error("⚠️ La bibliothèque Plotly est manquante pour afficher le graphique. Ajoutez 'plotly' dans votre fichier requirements.txt.")
