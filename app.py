@@ -198,7 +198,7 @@ class FestivalPDF(FPDF):
         self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
-        
+    
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -347,16 +347,6 @@ def compute_times(deb, fin, dur):
             return deb, dt_fin.strftime("%H:%M")
     return deb, fin
 
-# Helper pour les formulaires de contacts
-def contact_form(title, key_prefix, default_data):
-    st.markdown(f"**{title}**")
-    c1, c2, c3, c4 = st.columns(4)
-    nom = c1.text_input("Nom", default_data.get("Nom", ""), key=f"{key_prefix}_nom")
-    prenom = c2.text_input("Prénom", default_data.get("Prénom", ""), key=f"{key_prefix}_prenom")
-    tel = c3.text_input("Téléphone", default_data.get("Tel", ""), key=f"{key_prefix}_tel")
-    mail = c4.text_input("Email", default_data.get("Mail", ""), key=f"{key_prefix}_mail")
-    return {"Nom": nom, "Prénom": prenom, "Tel": tel, "Mail": mail}
-
 def format_contact(role, data):
     if not data: return ""
     nom = data.get("Nom", "").strip()
@@ -485,7 +475,6 @@ with main_tabs[0]:
                                     new_mapping[sheet] = {}
                                     
                                     marques_normales = [col for col in df.columns if not str(col).endswith("_EASYJOB")]
-                                    
                                     for brand in marques_normales:
                                         modeles = df[brand].dropna().astype(str).tolist()
                                         col_miroir = f"{brand}_EASYJOB"
@@ -958,26 +947,48 @@ with main_tabs[1]:
 
     # --- SOUS-ONGLET 2 : CONTACTS ---
     with sub_tabs_fest[1]:
-        st.subheader("🏢 Contact Festival")
-        with st.container(border=True):
-            st.session_state.contacts_festival["dir_tech"] = contact_form("Direction technique", "fest_dt", st.session_state.contacts_festival.get("dir_tech", {}))
-            st.session_state.contacts_festival["regie_gen"] = contact_form("Régie générale", "fest_rg", st.session_state.contacts_festival.get("regie_gen", {}))
-            sc_rg = st.text_input("Choix de la scène pour la Régie Générale", st.session_state.contacts_festival.get("regie_gen_scene", ""))
-            st.session_state.contacts_festival["regie_gen_scene"] = sc_rg
+        # --- BLOC FESTIVAL ---
+        with st.expander("Contact Festival", expanded=False):
+            roles_fest = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
+            df_fest_data = []
+            for code, name in roles_fest.items():
+                cd = st.session_state.contacts_festival.get(code, {})
+                df_fest_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+            
+            edited_fest = st.data_editor(
+                pd.DataFrame(df_fest_data),
+                use_container_width=True, hide_index=True,
+                column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                key="fest_ed"
+            )
+            for idx, row in edited_fest.iterrows():
+                code = list(roles_fest.keys())[idx]
+                st.session_state.contacts_festival[code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
 
+        # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
         for s in scenes:
-            with st.expander(f"🏗️ SCÈNE : {s}", expanded=False):
+            with st.expander(f"Contact : {s}", expanded=False):
                 if s not in st.session_state.contacts_scenes:
                     st.session_state.contacts_scenes[s] = {}
-                st.session_state.contacts_scenes[s]["SM"] = contact_form("STAGE MANAGER", f"sc_{s}_sm", st.session_state.contacts_scenes[s].get("SM", {}))
-                st.session_state.contacts_scenes[s]["FOH"] = contact_form("REGIE SON FOH", f"sc_{s}_foh", st.session_state.contacts_scenes[s].get("FOH", {}))
-                st.session_state.contacts_scenes[s]["MON"] = contact_form("REGIE SON MON", f"sc_{s}_mon", st.session_state.contacts_scenes[s].get("MON", {}))
-                st.session_state.contacts_scenes[s]["LUM"] = contact_form("REGIE LUMIERE", f"sc_{s}_lum", st.session_state.contacts_scenes[s].get("LUM", {}))
-                st.session_state.contacts_scenes[s]["VID"] = contact_form("REGIE VIDEO", f"sc_{s}_vid", st.session_state.contacts_scenes[s].get("VID", {}))
+                roles_scene = {"SM": "STAGE MANAGER", "FOH": "REGIE SON FOH", "MON": "REGIE SON MON", "LUM": "REGIE LUMIERE", "VID": "REGIE VIDEO"}
+                df_scene_data = []
+                for code, name in roles_scene.items():
+                    cd = st.session_state.contacts_scenes[s].get(code, {})
+                    df_scene_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+                
+                edited_scene = st.data_editor(
+                    pd.DataFrame(df_scene_data),
+                    use_container_width=True, hide_index=True,
+                    column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                    key=f"sc_ed_{s}"
+                )
+                for idx, row in edited_scene.iterrows():
+                    code = list(roles_scene.keys())[idx]
+                    st.session_state.contacts_scenes[s][code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
 
         st.divider()
-        st.subheader("🎸 Contact Artistes")
+        st.subheader("Contact Artistes")
         if not st.session_state.planning.empty:
             c_j, c_s = st.columns(2)
             j_sel = c_j.selectbox("Jour", sorted(st.session_state.planning["Jour"].unique()), key="c_jour")
@@ -986,17 +997,28 @@ with main_tabs[1]:
             artistes_jour = st.session_state.planning[(st.session_state.planning["Jour"] == j_sel) & (st.session_state.planning["Scène"] == s_sel)]["Artiste"].unique()
             
             for a in artistes_jour:
-                with st.expander(f"🎤 GROUPE : {a}", expanded=False):
+                with st.expander(f"Contact : {a}", expanded=False):
                     if a not in st.session_state.contacts_artistes:
                         st.session_state.contacts_artistes[a] = {}
-                    st.session_state.contacts_artistes[a]["RG"] = contact_form("Régie générale", f"art_{a}_rg", st.session_state.contacts_artistes[a].get("RG", {}))
-                    st.session_state.contacts_artistes[a]["RT"] = contact_form("Régie technique", f"art_{a}_rt", st.session_state.contacts_artistes[a].get("RT", {}))
-                    st.session_state.contacts_artistes[a]["FOH"] = contact_form("Régie SON FOH", f"art_{a}_foh", st.session_state.contacts_artistes[a].get("FOH", {}))
-                    st.session_state.contacts_artistes[a]["MON"] = contact_form("Régie SON MON", f"art_{a}_mon", st.session_state.contacts_artistes[a].get("MON", {}))
-                    st.session_state.contacts_artistes[a]["LUM"] = contact_form("Régie LUMIERE", f"art_{a}_lum", st.session_state.contacts_artistes[a].get("LUM", {}))
-                    st.session_state.contacts_artistes[a]["VID"] = contact_form("Régie VIDEO", f"art_{a}_vid", st.session_state.contacts_artistes[a].get("VID", {}))
+                    
+                    roles_art = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Régie SON FOH", "MON": "Régie SON MON", "LUM": "Régie LUMIERE", "VID": "Régie VIDEO"}
+                    df_art_data = []
+                    for code, name in roles_art.items():
+                        cd = st.session_state.contacts_artistes[a].get(code, {})
+                        df_art_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+                    
+                    edited_art = st.data_editor(
+                        pd.DataFrame(df_art_data),
+                        use_container_width=True, hide_index=True,
+                        column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                        key=f"art_ed_{a}"
+                    )
+                    for idx, row in edited_art.iterrows():
+                        code = list(roles_art.keys())[idx]
+                        st.session_state.contacts_artistes[a][code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
+
 
 # ==========================================
 # ONGLET 3 : TECHNIQUE
@@ -1058,11 +1080,11 @@ with main_tabs[2]:
                             "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                             "Métier": st.column_config.SelectboxColumn("Métier", options=["SON", "BACKLINE", "LUMIERE", "VIDEO", "STRUCTURE", "TOURBUS"], required=True),
                             "Emplacement": st.column_config.SelectboxColumn("Emplacement", options=["FOH", "JARDIN", "COUR", "LOINTAIN"], required=True)
-                        },
+                         },
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
-                        key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
+                         key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                     )
                     
                     if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
@@ -1119,7 +1141,8 @@ with main_tabs[2]:
                                     st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
                                 st.rerun()
                         st.divider()
-                        st.write("⚙️ **Saisie par Catégorie & Marque**")
+                    
+                    st.write("⚙️ **Saisie par Catégorie & Marque**")
                     
                     c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
                     liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE", "SYMETRISEUR"]
@@ -1288,7 +1311,7 @@ with main_tabs[2]:
                     for _, row in df_micros.iterrows():
                         qty = int(row["Quantité"])
                         for i in range(1, qty + 1): micros_instances.append(f"{row['Modèle']} #{i}")
-                            
+                    
                     liste_micros = [None] + sorted(micros_instances)
                     liste_stands = [None] + df_mat[df_mat["Catégorie"] == "PIEDS MICROS"]["Modèle"].unique().tolist()
                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
@@ -1305,7 +1328,7 @@ with main_tabs[2]:
                     used_micros_all = set()
                     
                     if "MASTER" in tables_data: used_micros_all.update(tables_data["MASTER"]["Micro / DI"].dropna().tolist())
-                        
+                    
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
                         used_inputs_departs[t_name] = set(clean_input(x) for x in tables_data[t_name]["Input"].dropna().tolist())
