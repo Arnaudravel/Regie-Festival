@@ -86,7 +86,7 @@ if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
 if 'patches_io' not in st.session_state:
     st.session_state.patches_io = {}
-if 'patches_out' not in st.session_state: # NOUVEAU STATE POUR PATCH OUT
+if 'patches_out' not in st.session_state:
     st.session_state.patches_out = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
@@ -286,7 +286,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4
     return pdf.output(dest='S').encode('latin-1')
 
 def generer_pdf_patch(titre_doc, dictionnaire_dfs):
-    pdf = FestivalPDF(orientation='L', unit='mm', format='A4') # Passé en Paysage (L) pour mieux voir toutes les colonnes du PATCH OUT
+    pdf = FestivalPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, titre_doc, ln=True, align='C')
@@ -481,7 +481,7 @@ with main_tabs[0]:
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
                     "patches_io": st.session_state.patches_io,
-                    "patches_out": st.session_state.patches_out, # Ajout Patch OUT à la sauvegarde
+                    "patches_out": st.session_state.patches_out,
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog,
@@ -533,7 +533,7 @@ with main_tabs[0]:
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
                             st.session_state.patches_io = data_loaded.get("patches_io", {})
-                            st.session_state.patches_out = data_loaded.get("patches_out", {}) # Restauration Patch OUT
+                            st.session_state.patches_out = data_loaded.get("patches_out", {})
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
@@ -982,11 +982,11 @@ with main_tabs[1]:
                     st.rerun()
                 df_to_save = edited_df.drop(columns=["Rider"])
                 if not df_to_save.equals(st.session_state.planning):
-                     st.session_state.planning = df_to_save.reset_index(drop=True)
-                     artistes_actifs = st.session_state.planning["Artiste"].unique()
-                     keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                     for k in keys_to_delete: del st.session_state.riders_stockage[k]
-                     st.rerun()
+                    st.session_state.planning = df_to_save.reset_index(drop=True)
+                    artistes_actifs = st.session_state.planning["Artiste"].unique()
+                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                    for k in keys_to_delete: del st.session_state.riders_stockage[k]
+                    st.rerun()
 
         # --- BLOC 3 : GESTION PDF ---
         with st.expander("📁 Gestion des Fichiers PDF", expanded=False):
@@ -1227,18 +1227,18 @@ with main_tabs[2]:
                         )
                         
                         if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
-                             st.session_state.alim_elec = st.session_state.alim_elec[
+                            st.session_state.alim_elec = st.session_state.alim_elec[
                                 ~((st.session_state.alim_elec["Groupe"] == sel_a) &
                                   (st.session_state.alim_elec["Scène"] == sel_s) &
                                   (st.session_state.alim_elec["Jour"] == sel_j))
                             ]
-                             if not edited_alim.empty:
+                            if not edited_alim.empty:
                                 new_alim = edited_alim.copy()
                                 new_alim["Groupe"] = sel_a
                                 new_alim["Scène"] = sel_s
                                 new_alim["Jour"] = sel_j
                                 st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
-                             st.rerun()
+                            st.rerun()
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
@@ -1299,15 +1299,16 @@ with main_tabs[2]:
                     v_qte = c_qte.number_input("Qté", 1, 500, 1, key="qte_classique")
                     v_app = c_app.checkbox("Artiste Apporte", key="app_classique")
                     if st.button("Ajouter au Patch"):
-                         if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")): st.error("⛔ Impossible d'ajouter un titre de section.")
-                         else:
+                        if isinstance(v_mod, str) and (v_mod.startswith("🔹") or v_mod.startswith("//")): 
+                            st.error("⛔ Impossible d'ajouter un titre de section.")
+                        else:
                             mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                             if not st.session_state.fiches_tech[mask].empty:
                                 st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                             else:
-                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
-                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
-                             st.rerun()
+                                new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
+                                st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                            st.rerun()
 
                 st.divider()
                 if st.session_state.delete_confirm_patch_idx is not None:
