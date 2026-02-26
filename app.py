@@ -86,6 +86,8 @@ if 'artist_circuits' not in st.session_state:
     st.session_state.artist_circuits = {}
 if 'patches_io' not in st.session_state:
     st.session_state.patches_io = {}
+if 'patches_out' not in st.session_state: # NOUVEAU STATE POUR PATCH OUT
+    st.session_state.patches_out = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'delete_confirm_idx' not in st.session_state:
@@ -284,7 +286,7 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4
     return pdf.output(dest='S').encode('latin-1')
 
 def generer_pdf_patch(titre_doc, dictionnaire_dfs):
-    pdf = FestivalPDF()
+    pdf = FestivalPDF(orientation='L', unit='mm', format='A4') # Passé en Paysage (L) pour mieux voir toutes les colonnes du PATCH OUT
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, titre_doc, ln=True, align='C')
@@ -293,11 +295,11 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
     for section, data in dictionnaire_dfs.items():
         if isinstance(data, pd.DataFrame):
             if not data.empty:
-                if pdf.get_y() > 250: pdf.add_page()
+                if pdf.get_y() > (pdf.h - 30): pdf.add_page()
                 pdf.ajouter_titre_section(section)
                 pdf.dessiner_tableau_patch(data)
         elif isinstance(data, str) and data.strip():
-            if pdf.get_y() > 250: pdf.add_page()
+            if pdf.get_y() > (pdf.h - 30): pdf.add_page()
             pdf.ajouter_titre_section(section)
             pdf.dessiner_texte(data)
             
@@ -312,7 +314,6 @@ def time_to_hours(t_str):
 def time_to_minutes(t_str):
     if t_str == "-- none --" or not t_str: return -1
     h, m = map(int, t_str.split(':'))
-    # On décale pour que 06:00 soit le repère 0
     shifted_h = h - 6
     if shifted_h < 0: shifted_h += 24
     return shifted_h * 60 + m
@@ -480,6 +481,7 @@ with main_tabs[0]:
                     "riders_stockage": st.session_state.riders_stockage,
                     "artist_circuits": st.session_state.artist_circuits,
                     "patches_io": st.session_state.patches_io,
+                    "patches_out": st.session_state.patches_out, # Ajout Patch OUT à la sauvegarde
                     "festival_name": st.session_state.festival_name,
                     "festival_logo": st.session_state.festival_logo,
                     "custom_catalog": st.session_state.custom_catalog,
@@ -531,6 +533,7 @@ with main_tabs[0]:
                             st.session_state.riders_stockage = data_loaded["riders_stockage"]
                             st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
                             st.session_state.patches_io = data_loaded.get("patches_io", {})
+                            st.session_state.patches_out = data_loaded.get("patches_out", {}) # Restauration Patch OUT
                             st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
                             st.session_state.festival_logo = data_loaded.get("festival_logo", None)
                             st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
@@ -577,7 +580,7 @@ with main_tabs[0]:
                                             if pd.notna(val) and str(val).strip() != "" and str(val).strip().lower() != "nan":
                                                 mod = str(val).strip()
                                                 modeles_valides.append(mod)
-                                                
+
                                                 if has_miroir and i < len(miroirs_raw) and pd.notna(miroirs_raw[i]) and str(miroirs_raw[i]).strip() != "" and str(miroirs_raw[i]).strip().lower() != "nan":
                                                     new_mapping[sheet][brand][mod] = str(miroirs_raw[i]).strip()
                                                 else:
@@ -692,7 +695,7 @@ with main_tabs[0]:
                             if not arts or df_input.empty: return pd.DataFrame()
                             mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                             for a in arts: 
-                               if a not in mat.columns: mat[a] = 0
+                                if a not in mat.columns: mat[a] = 0
                             res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
                             df_res = res.reset_index()
                             df_res.columns = list(df_res.columns[:-1]) + ["Total"]
@@ -707,8 +710,8 @@ with main_tabs[0]:
                         else:
                             all_days_res = []
                             for j in df_base["Jour"].unique():
-                                 res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                                 if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                                res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
                             if all_days_res:
                                 final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                                 for cat in final["Catégorie"].unique():
@@ -799,7 +802,7 @@ with main_tabs[0]:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
                                         item_name = f"{marque} {modele}".strip()
                                         if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
-                                            item_name = st.session_state.easyjob_mapping[cat][marque][modele]
+                                             item_name = st.session_state.easyjob_mapping[cat][marque][modele]
                                         export_data.append({"Quantity": qty, "Items": item_name})
                         
                         df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
@@ -826,9 +829,13 @@ with main_tabs[0]:
                     artistes_patch = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_patch) & (st.session_state.planning["Scène"] == s_s_patch)]["Artiste"].unique()
                     s_a_patch = st.selectbox("Groupe (Patch)", artistes_patch, key="export_a_patch")
                 with col_ep4:
-                    s_m_patch = st.selectbox("Format", ["12N", "20H"], key="export_m_patch")
+                    cb_patch_in = st.checkbox("PATCH IN", value=True)
+                    s_m_patch = None
+                    if cb_patch_in:
+                        s_m_patch = st.radio("Format IN", ["12N", "20H"], horizontal=True)
+                    cb_patch_out = st.checkbox("PATCH OUT", value=False)
 
-                if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
+                if st.button("Générer PDF Patch(s)", use_container_width=True):
                     dico_patch = {}
                     note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
                     if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
@@ -840,12 +847,29 @@ with main_tabs[0]:
                     ][["Format", "Métier", "Emplacement"]]
                     
                     if not df_alim_patch.empty: dico_patch["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_patch
-                    dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
-                    titre_patch = f"PATCH {s_m_patch} - {s_a_patch} ({s_j_patch} | {s_s_patch})"
-                    pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
-                    st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_m_patch}_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
-                else:
-                    st.info(f"ℹ️ Aucun Patch {s_m_patch} encodé pour {s_a_patch}. Veuillez le créer dans l'onglet Technique.")
+                    
+                    has_data = False
+                    
+                    if cb_patch_in and s_m_patch:
+                        if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
+                            dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
+                            has_data = True
+                        else:
+                            st.warning(f"⚠️ Aucun Patch IN {s_m_patch} trouvé pour {s_a_patch}.")
+
+                    if cb_patch_out:
+                        if s_a_patch in st.session_state.patches_out and st.session_state.patches_out[s_a_patch] is not None:
+                            dico_patch["--- PATCH OUT ---"] = st.session_state.patches_out[s_a_patch]
+                            has_data = True
+                        else:
+                            st.warning(f"⚠️ Aucun Patch OUT trouvé pour {s_a_patch}.")
+
+                    if has_data:
+                        titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
+                        pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
+                        st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
+                    else:
+                        st.error("Aucune donnée de patch sélectionnée ou disponible à exporter.")
 
 # ==========================================
 # ONGLET 2 : GESTION FESTIVAL
@@ -1138,7 +1162,7 @@ with main_tabs[1]:
 # ONGLET 3 : TECHNIQUE
 # ==========================================
 with main_tabs[2]:
-    sub_tabs_tech = st.tabs(["Saisie du matériel", "Création des Patch IN/OUT"])
+    sub_tabs_tech = st.tabs(["Saisie du matériel", "Création Patch IN", "Création Patch OUT"])
     
     # --- SOUS-ONGLET 1 : SAISIE MATERIEL ---
     with sub_tabs_tech[0]:
@@ -1159,7 +1183,7 @@ with main_tabs[2]:
                         if sel_file != "-- Choisir un fichier --":
                             pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
                             b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none;color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
+                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
                             st.markdown(pdf_link, unsafe_allow_html=True)
 
             if sel_a:
@@ -1195,7 +1219,7 @@ with main_tabs[2]:
                                 "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                                 "Métier": st.column_config.TextColumn("Métier", required=True),
                                 "Emplacement": st.column_config.TextColumn("Emplacement", required=True)
-                             },
+                            },
                             num_rows="dynamic",
                             use_container_width=True,
                             hide_index=True,
@@ -1283,7 +1307,7 @@ with main_tabs[2]:
                             else:
                                  new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                                  st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
-                            st.rerun()
+                             st.rerun()
 
                 st.divider()
                 if st.session_state.delete_confirm_patch_idx is not None:
@@ -1328,9 +1352,9 @@ with main_tabs[2]:
                          df_res.columns = list(df_res.columns[:-1]) + ["Total"]
                          st.dataframe(df_res, use_container_width=True, hide_index=True)
 
-    # --- SOUS-ONGLET 2 : CREATION DES PATCH IN/OUT ---
+    # --- SOUS-ONGLET 2 : CREATION PATCH IN ---
     with sub_tabs_tech[1]:
-        st.subheader("📋 Patch IN / OUT")
+        st.subheader("📋 Patch IN")
         
         if not st.session_state.planning.empty:
             f1_p, f2_p, f3_p = st.columns(3)
@@ -1349,7 +1373,7 @@ with main_tabs[2]:
                         if sel_file_p != "-- Choisir un fichier --":
                             pdf_data_p = st.session_state.riders_stockage[sel_a_p][sel_file_p]
                             b64_pdf_p = base64.b64encode(pdf_data_p).decode('utf-8')
-                            pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none;color:white; background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
+                            pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
                             st.markdown(pdf_link_p, unsafe_allow_html=True)
 
             if sel_a_p:
@@ -1527,3 +1551,99 @@ with main_tabs[2]:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
                 st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits pour gérer le patch.")
+
+    # --- SOUS-ONGLET 3 : CREATION PATCH OUT ---
+    with sub_tabs_tech[2]:
+        st.subheader("📋 Patch OUT")
+        
+        if not st.session_state.planning.empty:
+            f1_o, f2_o, f3_o = st.columns(3)
+            with f1_o: sel_j_o = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch_out")
+            with f2_o:
+                scenes_o = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_o]["Scène"].unique()
+                sel_s_o = st.selectbox("🏗️ Scène", scenes_o, key="scene_patch_out")
+            with f3_o:
+                artistes_o = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_o) & (st.session_state.planning["Scène"] == sel_s_o)]["Artiste"].unique()
+                sel_a_o = st.selectbox("🎸 Groupe", artistes_o, key="art_patch_out")
+
+                if sel_a_o and sel_a_o in st.session_state.riders_stockage:
+                    riders_groupe_o = list(st.session_state.riders_stockage[sel_a_o].keys())
+                    if riders_groupe_o:
+                        sel_file_o = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_o, key=f"view_o_{sel_a_o}")
+                        if sel_file_o != "-- Choisir un fichier --":
+                            pdf_data_o = st.session_state.riders_stockage[sel_a_o][sel_file_o]
+                            b64_pdf_o = base64.b64encode(pdf_data_o).decode('utf-8')
+                            pdf_link_o = f'<a href="data:application/pdf;base64,{b64_pdf_o}" download="{sel_file_o}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_o}</a>'
+                            st.markdown(pdf_link_o, unsafe_allow_html=True)
+
+            if sel_a_o:
+                def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+
+                st.divider()
+                st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_o}")
+                col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_o, "inputs"))
+                with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_o, "ear_stereo"))
+                with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_o, "mon_stereo"))
+                with col_grp4: st.metric("MON Mono", get_circ(sel_a_o, "mon_mono"))
+
+                st.divider()
+
+                nb_ear_st = get_circ(sel_a_o, "ear_stereo")
+                nb_mon_st = get_circ(sel_a_o, "mon_stereo")
+                nb_mon_mo = get_circ(sel_a_o, "mon_mono")
+                
+                # EAR Stereo = 2, MON Stereo = 2, MON Mono = 1
+                nb_rows_out = (nb_ear_st * 2) + (nb_mon_st * 2) + nb_mon_mo
+
+                if nb_rows_out > 0:
+                    if sel_a_o not in st.session_state.patches_out:
+                        st.session_state.patches_out[sel_a_o] = None
+                    
+                    df_mat_o = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a_o]
+                    gear_out_df = df_mat_o[df_mat_o["Catégorie"].isin(["MONITOR", "EAR MONITOR"])]
+                    
+                    out_instances = []
+                    for _, row in gear_out_df.iterrows():
+                        qty = int(row["Quantité"])
+                        for i in range(1, qty + 1): out_instances.append(f"{row['Modèle']} #{i}")
+                    
+                    # On rajoute quelques options de saisie libre pour palier à la contrainte native de st.data_editor
+                    liste_ampli_ear = [None] + sorted(out_instances) + ["-- Saisie libre 1 --", "-- Saisie libre 2 --", "-- Saisie libre 3 --", "-- Autre --"]
+                    
+                    if st.session_state.patches_out[sel_a_o] is None or len(st.session_state.patches_out[sel_a_o]) != nb_rows_out:
+                        st.session_state.patches_out[sel_a_o] = pd.DataFrame({
+                            "Mix / Aux": [""] * nb_rows_out,
+                            "Sortie Console / Stage": [""] * nb_rows_out,
+                            "Ampli / Ear": [None] * nb_rows_out,
+                            "Entrée A": [False] * nb_rows_out,
+                            "Entrée B": [False] * nb_rows_out,
+                            "Entrée C": [False] * nb_rows_out,
+                            "Entrée D": [False] * nb_rows_out,
+                            "Sortie": [""] * nb_rows_out,
+                            "Désignation": [""] * nb_rows_out
+                        })
+                        
+                    with st.expander(f"Tableau PATCH OUT ({nb_rows_out} lignes générées)", expanded=True):
+                        edited_out = st.data_editor(
+                            st.session_state.patches_out[sel_a_o],
+                            column_config={
+                                "Mix / Aux": st.column_config.TextColumn("Mix / Aux"),
+                                "Sortie Console / Stage": st.column_config.TextColumn("Sortie Console / Stage"),
+                                "Ampli / Ear": st.column_config.SelectboxColumn("Ampli / Ear", options=liste_ampli_ear),
+                                "Entrée A": st.column_config.CheckboxColumn("A"),
+                                "Entrée B": st.column_config.CheckboxColumn("B"),
+                                "Entrée C": st.column_config.CheckboxColumn("C"),
+                                "Entrée D": st.column_config.CheckboxColumn("D"),
+                                "Sortie": st.column_config.TextColumn("Sortie"),
+                                "Désignation": st.column_config.TextColumn("Désignation")
+                            },
+                            hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
+                        )
+                        if not edited_out.equals(st.session_state.patches_out[sel_a_o]):
+                            st.session_state.patches_out[sel_a_o] = edited_out
+                            st.rerun()
+                else:
+                    st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON) dans 'Saisie du matériel' pour générer le Patch OUT.")
+            else:
+                st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits.")
