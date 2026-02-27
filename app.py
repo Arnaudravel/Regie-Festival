@@ -1305,11 +1305,11 @@ with main_tabs[2]:
                     st.write("⚙️ **Saisie par Catégorie & Marque**")
                     
                     c_cat, c_mar, c_mod, c_qte, c_app = st.columns([2, 2, 2, 1, 1])
-                    liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["MICROS FILAIRE", "HF", "EAR MONITOR", "BACKLINE", "SYMETRISEUR"]
+                    liste_categories = list(CATALOGUE.keys()) if CATALOGUE else ["-- Chargez un catalogue --"]
                     v_cat = c_cat.selectbox("Catégorie", liste_categories)
                     liste_marques = []
                     if CATALOGUE and v_cat in CATALOGUE: liste_marques = list(CATALOGUE[v_cat].keys())
-                    else: liste_marques = ["SHURE", "SENNHEISER", "AKG", "NEUMANN", "YAMAHA", "FENDER", "BSS", "RADIAL"]
+                    else: liste_marques = ["-- Chargez un catalogue --"]
                     v_mar = c_mar.selectbox("Marque", liste_marques)
                     v_mod = ""
                     if CATALOGUE and v_cat in CATALOGUE and v_mar in CATALOGUE[v_cat]:
@@ -1317,7 +1317,7 @@ with main_tabs[2]:
                         display_modeles = [f"🔹 {str(m).replace('//','').strip()} 🔹" if str(m).startswith("//") else m for m in raw_modeles]
                         v_mod = c_mod.selectbox("Modèle", display_modeles)
                     else:
-                         v_mod = c_mod.text_input("Modèle", "SM58")
+                         v_mod = c_mod.text_input("Modèle", "")
                     v_qte = c_qte.number_input("Qté", 1, 500, 1, key="qte_classique")
                     v_app = c_app.checkbox("Artiste Apporte", key="app_classique")
                     if st.button("Ajouter au Patch"):
