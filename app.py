@@ -558,6 +558,12 @@ with main_tabs[0]:
                             st.session_state.contacts_scenes = data_loaded.get("contacts_scenes", {})
                             st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
                             st.success("Session restaurée avec succès !")
+                            
+                            # Réinitialiser les triggers de cache pour éviter un conflit avec la nouvelle sauvegarde
+                            for key in list(st.session_state.keys()):
+                                if key.startswith("cplan") or key.startswith("cpatch_") or key.startswith("calim_") or key.startswith("cfest_") or key.startswith("cscenes_") or key.startswith("cart_"):
+                                    del st.session_state[key]
+                                    
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erreur lors du chargement : {e}")
@@ -980,31 +986,33 @@ with main_tabs[1]:
                     if pdfs:
                         for f in pdfs: st.session_state.riders_stockage[ar][f.name] = f.read()
                     st.session_state.uploader_key += 1
+                    
+                    # On notifie le cache du tableau qu'il faut se reconstruire
+                    st.session_state.refresh_cplan = True
                     st.rerun()
 
         # --- BLOC 2 : PLANNING GLOBAL ---
         with st.expander("📋 Planning Global (Modifiable)", expanded=False):
             if not st.session_state.planning.empty:
-                df_visu = st.session_state.planning.copy()
-                df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+                # --- SYSTEME DE CACHE POUR EVITER LE RE-RENDER AU CLIC ---
+                if "cplan" not in st.session_state or st.session_state.get("refresh_cplan", False):
+                    df_visu = st.session_state.planning.copy()
+                    df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+                    st.session_state.cplan = df_visu.reset_index(drop=True)
+                    st.session_state.refresh_cplan = False
                 
-                edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
+                edited_df = st.data_editor(st.session_state.cplan, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
                 
-                # Sauvegarde silencieuse (sans st.rerun)
-                df_to_save = edited_df.drop(columns=["Rider"])
-                
-                # NETTOYAGE SECURITE : On supprime uniquement les lignes complètement vides
-                # Suppression du (subset=["Artiste"]) pour éviter la disparition d'une ligne en cours de saisie
-                df_to_save = df_to_save.dropna(how="all").reset_index(drop=True)
-                
-                # Sauvegarde silencieuse uniquement si modification
-                if not df_visu.drop(columns=["Rider"]).reset_index(drop=True).equals(df_to_save):
+                # Mise à jour silencieuse
+                if not st.session_state.cplan.equals(edited_df):
+                    st.session_state.cplan = edited_df
+                    df_to_save = edited_df.drop(columns=["Rider"]).dropna(how="all").reset_index(drop=True)
                     st.session_state.planning = df_to_save
-                
-                # Nettoyage silencieux des PDFs pour les artistes supprimés via la corbeille native
-                artistes_actifs = st.session_state.planning["Artiste"].unique()
-                keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                for k in keys_to_delete: del st.session_state.riders_stockage[k]
+                    
+                    # Nettoyage silencieux des PDFs pour les artistes supprimés
+                    artistes_actifs = st.session_state.planning["Artiste"].unique()
+                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                    for k in keys_to_delete: del st.session_state.riders_stockage[k]
 
         # --- BLOC 3 : GESTION PDF ---
         with st.expander("📁 Gestion des Fichiers PDF", expanded=False):
@@ -1020,12 +1028,14 @@ with main_tabs[1]:
                             cf1.write(f"📄 {fname}")
                             if cf2.button("🗑️", key=f"del_pdf_{fname}"):
                                 del st.session_state.riders_stockage[choix_art_pdf][fname]
+                                st.session_state.refresh_cplan = True # Force update du symbole check
                                 st.rerun()
                     with cg2:
                         nouveaux_pdf = st.file_uploader("Ajouter des fichiers", accept_multiple_files=True, key="add_pdf_extra")
                         if st.button("Enregistrer les nouveaux PDF"):
                             if nouveaux_pdf:
                                 for f in nouveaux_pdf: st.session_state.riders_stockage[choix_art_pdf][f.name] = f.read()
+                            st.session_state.refresh_cplan = True
                             st.rerun()
 
         # --- BLOC 4 : PLANNING QUOTIDIEN ---
@@ -1105,11 +1115,12 @@ with main_tabs[1]:
     with sub_tabs_fest[1]:
         # --- BLOC FESTIVAL ---
         with st.expander("Contact Festival", expanded=False):
-            roles_fest_map = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
-            df_fest_data = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map)
+            if "cfest_cache" not in st.session_state:
+                roles_fest_map = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
+                st.session_state.cfest_cache = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map)
             
             edited_fest = st.data_editor(
-                df_fest_data,
+                st.session_state.cfest_cache,
                 use_container_width=True, hide_index=True, num_rows="dynamic",
                 column_config={
                     "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
@@ -1121,19 +1132,21 @@ with main_tabs[1]:
                 },
                 key="fest_ed"
             )
-            # Sauvegarde silencieuse uniquement si modification
-            if not df_fest_data.reset_index(drop=True).equals(edited_fest.reset_index(drop=True)):
+            if not st.session_state.cfest_cache.equals(edited_fest):
+                st.session_state.cfest_cache = edited_fest
                 st.session_state.contacts_festival = edited_fest
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
         for s in scenes:
             with st.expander(f"Contact : {s}", expanded=False):
-                roles_scene_map = {"SM": "Stage Manager", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                df_scene_data = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map)
+                c_key_sc = f"cscenes_cache_{s}"
+                if c_key_sc not in st.session_state:
+                    roles_scene_map = {"SM": "Stage Manager", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
+                    st.session_state[c_key_sc] = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map)
                 
                 edited_scene = st.data_editor(
-                    df_scene_data,
+                    st.session_state[c_key_sc],
                     use_container_width=True, hide_index=True, num_rows="dynamic",
                     column_config={
                         "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
@@ -1145,8 +1158,8 @@ with main_tabs[1]:
                     },
                     key=f"sc_ed_{s}"
                 )
-                # Sauvegarde silencieuse uniquement si modification
-                if not df_scene_data.reset_index(drop=True).equals(edited_scene.reset_index(drop=True)):
+                if not st.session_state[c_key_sc].equals(edited_scene):
+                    st.session_state[c_key_sc] = edited_scene
                     st.session_state.contacts_scenes[s] = edited_scene
 
         st.divider()
@@ -1160,11 +1173,13 @@ with main_tabs[1]:
             
             for a in artistes_jour:
                 with st.expander(f"Contact : {a}", expanded=False):
-                    roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                    df_art_data = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map)
+                    c_key_art = f"cart_cache_{a}"
+                    if c_key_art not in st.session_state:
+                        roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
+                        st.session_state[c_key_art] = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map)
                     
                     edited_art = st.data_editor(
-                        df_art_data,
+                        st.session_state[c_key_art],
                         use_container_width=True, hide_index=True, num_rows="dynamic",
                         column_config={
                             "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
@@ -1176,8 +1191,8 @@ with main_tabs[1]:
                         },
                         key=f"art_ed_{a}"
                     )
-                    # Sauvegarde silencieuse uniquement si modification
-                    if not df_art_data.reset_index(drop=True).equals(edited_art.reset_index(drop=True)):
+                    if not st.session_state[c_key_art].equals(edited_art):
+                        st.session_state[c_key_art] = edited_art
                         st.session_state.contacts_artistes[a] = edited_art
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
@@ -1234,14 +1249,17 @@ with main_tabs[2]:
 
                     with col_alim:
                         st.markdown(f"**⚡ Alimentation électrique**")
-                        df_alim_art = st.session_state.alim_elec[
-                            (st.session_state.alim_elec["Groupe"] == sel_a) &
-                            (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
-                            (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
-                        ]
+                        c_key_alim = f"calim_{sel_a}_{sel_s}_{sel_j}"
+                        if c_key_alim not in st.session_state:
+                            df_alim_art = st.session_state.alim_elec[
+                                (st.session_state.alim_elec["Groupe"] == sel_a) &
+                                (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
+                                (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
+                            ]
+                            st.session_state[c_key_alim] = df_alim_art[["Format", "Métier", "Emplacement"]].reset_index(drop=True)
                         
                         edited_alim = st.data_editor(
-                            df_alim_art[["Format", "Métier", "Emplacement"]],
+                            st.session_state[c_key_alim],
                             column_config={
                                 "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                                 "Métier": st.column_config.TextColumn("Métier", required=True),
@@ -1253,8 +1271,8 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun) uniquement si modification
-                        if not df_alim_art[["Format", "Métier", "Emplacement"]].reset_index(drop=True).equals(edited_alim.reset_index(drop=True)):
+                        if not st.session_state[c_key_alim].equals(edited_alim):
+                            st.session_state[c_key_alim] = edited_alim
                             mask_alim = (
                                 (st.session_state.alim_elec["Groupe"] == sel_a) &
                                 (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
@@ -1279,6 +1297,9 @@ with main_tabs[2]:
                 st.divider()
                 with st.expander(f"📥 Saisie Matériel : {sel_a}", expanded=True):
                     CATALOGUE = st.session_state.custom_catalog
+                    
+                    c_key_patch = f"cpatch_{sel_a}"
+                    
                     if CATALOGUE:
                         st.write("🔍 **Recherche rapide (Catalogue)**")
                         all_items = []
@@ -1305,6 +1326,7 @@ with main_tabs[2]:
                                 else:
                                     new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": cat_part, "Marque": marq_part, "Modèle": mod_part, "Quantité": qte_r, "Artiste_Apporte": app_r}])
                                     st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                                st.session_state[f"refresh_{c_key_patch}"] = True
                                 st.rerun()
                         st.divider()
                     
@@ -1336,31 +1358,38 @@ with main_tabs[2]:
                             else:
                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
+                            st.session_state[f"refresh_{c_key_patch}"] = True
                             st.rerun()
 
                 st.divider()
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
-                    df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
+                    
+                    # --- SYSTEME DE CACHE POUR FIXER LE BUG DU CHECKBOX "ARTISTE APPORTE" ---
+                    if c_key_patch not in st.session_state or st.session_state.get(f"refresh_{c_key_patch}", False):
+                        st.session_state[c_key_patch] = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"]).reset_index(drop=True)
+                        st.session_state[f"refresh_{c_key_patch}"] = False
                     
                     edited_patch = st.data_editor(
-                        df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
+                        st.session_state[c_key_patch], use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
                     
-                    # Sauvegarde silencieuse de la table items uniquement si modification
-                    if not df_patch_art.reset_index(drop=True).equals(edited_patch.reset_index(drop=True)):
+                    if not st.session_state[c_key_patch].equals(edited_patch):
+                        st.session_state[c_key_patch] = edited_patch
+                        
                         mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
                         other_fiches = st.session_state.fiches_tech[~mask_fiches]
                         
                         if not edited_patch.empty:
-                            # Assurer que les nouvelles lignes ajoutées nativement récupèrent les bonnes méta-données cachées
-                            edited_patch["Scène"] = sel_s
-                            edited_patch["Jour"] = sel_j
-                            edited_patch["Groupe"] = sel_a
-                            
-                        st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
+                            edited_patch_copy = edited_patch.copy()
+                            edited_patch_copy["Scène"] = sel_s
+                            edited_patch_copy["Jour"] = sel_j
+                            edited_patch_copy["Groupe"] = sel_a
+                            st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch_copy], ignore_index=True)
+                        else:
+                            st.session_state.fiches_tech = other_fiches
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1522,8 +1551,7 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
-                            # Sauvegarde silencieuse uniquement si modification
-                            if not tables_data["MASTER"].reset_index(drop=True).equals(edited_master.reset_index(drop=True)):
+                            if not tables_data["MASTER"].equals(edited_master):
                                 curr_state[mode_key]["MASTER"] = edited_master
 
                     for i in range(1, num_tabs + 1):
@@ -1571,8 +1599,7 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
-                            # Sauvegarde silencieuse uniquement si modification
-                            if not tables_data[t_name].reset_index(drop=True).equals(edited_dep.reset_index(drop=True)):
+                            if not tables_data[t_name].equals(edited_dep):
                                 curr_state[mode_key][t_name] = edited_dep
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
@@ -1669,8 +1696,7 @@ with main_tabs[2]:
                             },
                             hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
                         )
-                        # Sauvegarde silencieuse uniquement si modification
-                        if not st.session_state.patches_out[sel_a_o].reset_index(drop=True).equals(edited_out.reset_index(drop=True)):
+                        if not st.session_state.patches_out[sel_a_o].equals(edited_out):
                             st.session_state.patches_out[sel_a_o] = edited_out
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
