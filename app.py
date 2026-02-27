@@ -618,8 +618,8 @@ with main_tabs[0]:
 
     with sub_tabs_projet[1]:
         st.header("📄 Génération des Exports PDF")
-        l_jours = sorted(st.session_state.planning["Jour"].unique())
-        l_scenes = sorted(st.session_state.planning["Scène"].unique())
+        l_jours = sorted(st.session_state.planning["Jour"].dropna().astype(str).unique())
+        l_scenes = sorted(st.session_state.planning["Scène"].dropna().astype(str).unique())
         cex1, cex2 = st.columns(2)
 
         with cex1:
@@ -633,7 +633,7 @@ with main_tabs[0]:
                     df_p = st.session_state.planning.copy()
                     
                     if m_plan == "Par Jour & Scène" and MATPLOTLIB_AVAILABLE:
-                        sub_df = df_p[(df_p["Jour"] == str(s_j_p)) & (df_p["Scène"] == s_s_p)]
+                        sub_df = df_p[(df_p["Jour"].astype(str) == str(s_j_p)) & (df_p["Scène"].astype(str) == str(s_s_p))]
                         titre = f"Planning Vertical {s_s_p} - {s_j_p}"
                         pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
                         if pdf_bytes:
@@ -647,7 +647,7 @@ with main_tabs[0]:
                         
                         for j in jours_a_traiter:
                             for s in scenes_a_traiter:
-                                sub_df = df_p[(df_p["Jour"] == str(j)) & (df_p["Scène"] == s)]
+                                sub_df = df_p[(df_p["Jour"].astype(str) == str(j)) & (df_p["Scène"].astype(str) == str(s))]
                                 df_grid = build_planning_grid(sub_df)
                                 if not df_grid.empty:
                                     dico_sections[f"JOUR : {j} | SCENE : {s}"] = df_grid
@@ -667,14 +667,14 @@ with main_tabs[0]:
                 sel_grp_exp = "Tous"
                 if m_bes == "Par Jour & Scène":
                     s_j_m = st.selectbox("Jour (Besoins)", l_jours, key="sjm")
-                    arts_du_jour = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_m) & (st.session_state.planning["Scène"] == s_s_m)]["Artiste"].unique()
+                    arts_du_jour = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(s_j_m)) & (st.session_state.planning["Scène"].astype(str) == str(s_s_m))]["Artiste"].unique()
                     sel_grp_exp = st.selectbox("Filtrer par Groupe (Optionnel)", ["Tous"] + list(arts_du_jour))
                 
                 col_btn_pdf, col_btn_ej = st.columns(2)
                 
                 with col_btn_pdf:
                     if st.button("Générer PDF Besoins", use_container_width=True):
-                        df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                        df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous": df_base = df_base[df_base["Groupe"] == sel_grp_exp]
                          
                         dico_besoins = {}
@@ -682,10 +682,10 @@ with main_tabs[0]:
                         if sel_grp_exp != "Tous":
                             df_alim_besoin = st.session_state.alim_elec[
                                 (st.session_state.alim_elec["Groupe"] == sel_grp_exp) & 
-                                (st.session_state.alim_elec["Scène"] == s_s_m)
+                                (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_m))
                             ]
                             if m_bes == "Par Jour & Scène":
-                                df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"] == s_j_m]
+                                df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"].astype(str) == str(s_j_m)]
                             if not df_alim_besoin.empty:
                                 dico_besoins["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_besoin[["Format", "Métier", "Emplacement"]]
 
@@ -702,9 +702,9 @@ with main_tabs[0]:
 
                         def calcul_pic(df_input, jour, scene):
                             if sel_grp_exp != "Tous":
-                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene)) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
                             else:
-                                plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)]
+                                plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene))]
                             arts = plan["Artiste"].tolist()
                             if not arts or df_input.empty: return pd.DataFrame()
                             mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
@@ -716,7 +716,7 @@ with main_tabs[0]:
                             return df_res
 
                         if m_bes == "Par Jour & Scène":
-                            data_pic = calcul_pic(df_base[df_base["Jour"] == s_j_m], s_j_m, s_s_m)
+                            data_pic = calcul_pic(df_base[df_base["Jour"].astype(str) == str(s_j_m)], s_j_m, s_s_m)
                             if not data_pic.empty:
                                 for cat in data_pic["Catégorie"].unique():
                                     cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
@@ -732,8 +732,8 @@ with main_tabs[0]:
                                     cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
                                     dico_besoins[f"CATEGORIE : {cat}"] = final[final["Catégorie"] == cat][cols_dispo_glob]
 
-                        df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
-                        if m_bes == "Par Jour & Scène": df_apporte = df_apporte[df_apporte["Jour"] == s_j_m]
+                        df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
+                        if m_bes == "Par Jour & Scène": df_apporte = df_apporte[df_apporte["Jour"].astype(str) == str(s_j_m)]
                         if sel_grp_exp != "Tous": df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
                         artistes_apporte = df_apporte["Groupe"].unique()
                         if len(artistes_apporte) > 0:
@@ -748,7 +748,7 @@ with main_tabs[0]:
                         
                         if m_bes == "Par Jour & Scène": arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
                         else:
-                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"] == s_s_m]
+                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"].astype(str) == str(s_s_m)]
                             arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
                         
                         notes_list_text = []
@@ -788,12 +788,12 @@ with main_tabs[0]:
 
                 with col_btn_ej:
                     if st.button("Export Easyjob", use_container_width=True):
-                        df_base_ej = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == s_s_m) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                        df_base_ej = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous": df_base_ej = df_base_ej[df_base_ej["Groupe"] == sel_grp_exp]
 
                         def calcul_pic_ej(df_input, jour, scene):
-                            if sel_grp_exp != "Tous": plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
-                            else: plan = st.session_state.planning[(st.session_state.planning["Jour"] == jour) & (st.session_state.planning["Scène"] == scene)]
+                            if sel_grp_exp != "Tous": plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene)) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
+                            else: plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene))]
                             arts = plan["Artiste"].tolist()
                             if not arts or df_input.empty: return pd.DataFrame()
                             mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
@@ -807,7 +807,7 @@ with main_tabs[0]:
                         export_data = []
 
                         if m_bes == "Par Jour & Scène":
-                            data_pic = calcul_pic_ej(df_base_ej[df_base_ej["Jour"] == s_j_m], s_j_m, s_s_m)
+                            data_pic = calcul_pic_ej(df_base_ej[df_base_ej["Jour"].astype(str) == str(s_j_m)], s_j_m, s_s_m)
                             if not data_pic.empty:
                                 for _, row in data_pic.iterrows():
                                     qty = row["Total"]
@@ -848,13 +848,13 @@ with main_tabs[0]:
             else:
                 col_ep1, col_ep2, col_ep3, col_ep4 = st.columns(4)
                 with col_ep1:
-                    l_jours_p = sorted(st.session_state.planning["Jour"].unique())
+                    l_jours_p = sorted(st.session_state.planning["Jour"].dropna().astype(str).unique())
                     s_j_patch = st.selectbox("Jour (Patch)", l_jours_p, key="export_j_patch")
                 with col_ep2:
-                    scenes_jour = st.session_state.planning[st.session_state.planning["Jour"] == s_j_patch]["Scène"].unique()
+                    scenes_jour = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(s_j_patch)]["Scène"].dropna().astype(str).unique()
                     s_s_patch = st.selectbox("Scène (Patch)", scenes_jour, key="export_s_patch")
                 with col_ep3:
-                    artistes_patch = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_patch) & (st.session_state.planning["Scène"] == s_s_patch)]["Artiste"].unique()
+                    artistes_patch = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(s_j_patch)) & (st.session_state.planning["Scène"].astype(str) == str(s_s_patch))]["Artiste"].unique()
                     s_a_patch = st.selectbox("Groupe (Patch)", artistes_patch, key="export_a_patch")
                 with col_ep4:
                     cb_patch_in = st.checkbox("PATCH IN", value=True)
@@ -870,8 +870,8 @@ with main_tabs[0]:
                     
                     df_alim_patch = st.session_state.alim_elec[
                         (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
-                        (st.session_state.alim_elec["Scène"] == s_s_patch) & 
-                        (st.session_state.alim_elec["Jour"] == s_j_patch)
+                        (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_patch)) & 
+                        (st.session_state.alim_elec["Jour"].astype(str) == str(s_j_patch))
                     ][["Format", "Métier", "Emplacement"]]
                     
                     if not df_alim_patch.empty: dico_patch["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_patch
@@ -992,7 +992,12 @@ with main_tabs[1]:
                 
                 # Sauvegarde silencieuse (sans st.rerun)
                 df_to_save = edited_df.drop(columns=["Rider"])
-                st.session_state.planning = df_to_save.reset_index(drop=True)
+                
+                # NETTOYAGE SECURITE : On supprime les lignes complètement vides ou sans artiste ajoutées par erreur via l'éditeur
+                df_to_save = df_to_save.dropna(how="all")
+                df_to_save = df_to_save.dropna(subset=["Artiste"]).reset_index(drop=True)
+                
+                st.session_state.planning = df_to_save
                 
                 # Nettoyage silencieux des PDFs pour les artistes supprimés via la corbeille native
                 artistes_actifs = st.session_state.planning["Artiste"].unique()
@@ -1024,13 +1029,13 @@ with main_tabs[1]:
         # --- BLOC 4 : PLANNING QUOTIDIEN ---
         with st.expander("📅 Planning Quotidien (Visuel Vertical)", expanded=True):
             if not st.session_state.planning.empty:
-                l_jours_g = sorted(st.session_state.planning["Jour"].unique())
+                l_jours_g = sorted(st.session_state.planning["Jour"].dropna().astype(str).unique())
                 cg_1, cg_2 = st.columns(2)
                 s_j_g = cg_1.selectbox("Sélectionner le Jour", l_jours_g)
-                l_scenes_g = sorted(st.session_state.planning[st.session_state.planning["Jour"] == s_j_g]["Scène"].unique())
+                l_scenes_g = sorted(st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(s_j_g)]["Scène"].dropna().astype(str).unique())
                 s_s_g = cg_2.selectbox("Sélectionner la Scène", l_scenes_g)
                 
-                df_g = st.session_state.planning[(st.session_state.planning["Jour"] == s_j_g) & (st.session_state.planning["Scène"] == s_s_g)]
+                df_g = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(s_j_g)) & (st.session_state.planning["Scène"].astype(str) == str(s_s_g))]
                 
                 gantt_data = []
                 phases = [
@@ -1144,10 +1149,10 @@ with main_tabs[1]:
         st.subheader("Contact Artistes")
         if not st.session_state.planning.empty:
             c_j, c_s = st.columns(2)
-            j_sel = c_j.selectbox("Jour", sorted(st.session_state.planning["Jour"].unique()), key="c_jour")
-            s_sel = c_s.selectbox("Scène", st.session_state.planning[st.session_state.planning["Jour"] == j_sel]["Scène"].unique(), key="c_scene")
+            j_sel = c_j.selectbox("Jour", sorted(st.session_state.planning["Jour"].dropna().astype(str).unique()), key="c_jour")
+            s_sel = c_s.selectbox("Scène", st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(j_sel)]["Scène"].dropna().astype(str).unique(), key="c_scene")
             
-            artistes_jour = st.session_state.planning[(st.session_state.planning["Jour"] == j_sel) & (st.session_state.planning["Scène"] == s_sel)]["Artiste"].unique()
+            artistes_jour = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(j_sel)) & (st.session_state.planning["Scène"].astype(str) == str(s_sel))]["Artiste"].unique()
             
             for a in artistes_jour:
                 with st.expander(f"Contact : {a}", expanded=False):
@@ -1182,12 +1187,12 @@ with main_tabs[2]:
     with sub_tabs_tech[0]:
         if not st.session_state.planning.empty:
             f1, f2, f3 = st.columns(3)
-            with f1: sel_j = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()))
+            with f1: sel_j = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].dropna().astype(str).unique()))
             with f2:
-                scenes = st.session_state.planning[st.session_state.planning["Jour"] == sel_j]["Scène"].unique()
+                scenes = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(sel_j)]["Scène"].dropna().astype(str).unique()
                 sel_s = st.selectbox("🏗️ Scène", scenes)
             with f3:
-                artistes = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]["Artiste"].unique()
+                artistes = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s))]["Artiste"].unique()
                 sel_a = st.selectbox("🎸 Groupe", artistes)
                 
                 if sel_a and sel_a in st.session_state.riders_stockage:
@@ -1226,8 +1231,8 @@ with main_tabs[2]:
                         st.markdown(f"**⚡ Alimentation électrique**")
                         df_alim_art = st.session_state.alim_elec[
                             (st.session_state.alim_elec["Groupe"] == sel_a) &
-                            (st.session_state.alim_elec["Scène"] == sel_s) &
-                            (st.session_state.alim_elec["Jour"] == sel_j)
+                            (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
+                            (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
                         ]
                         
                         edited_alim = st.data_editor(
@@ -1246,8 +1251,8 @@ with main_tabs[2]:
                         # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun)
                         mask_alim = (
                             (st.session_state.alim_elec["Groupe"] == sel_a) &
-                            (st.session_state.alim_elec["Scène"] == sel_s) &
-                            (st.session_state.alim_elec["Jour"] == sel_j)
+                            (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
+                            (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
                         )
                         st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
                         
@@ -1352,9 +1357,9 @@ with main_tabs[2]:
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
-                    plan_trié = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j) & (st.session_state.planning["Scène"] == sel_s)]
+                    plan_trié = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s))]
                     liste_art = plan_trié["Artiste"].tolist()
-                    df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"] == sel_s) & (st.session_state.fiches_tech["Jour"] == sel_j) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                    df_b = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(sel_s)) & (st.session_state.fiches_tech["Jour"].astype(str) == str(sel_j)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                     if not df_b.empty:
                          matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                          for a in liste_art: 
@@ -1371,12 +1376,12 @@ with main_tabs[2]:
         
         if not st.session_state.planning.empty:
             f1_p, f2_p, f3_p = st.columns(3)
-            with f1_p: sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch")
+            with f1_p: sel_j_p = st.selectbox("📅 Jour ", sorted(st.session_state.planning["Jour"].dropna().astype(str).unique()), key="jour_patch")
             with f2_p:
-                scenes_p = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_p]["Scène"].unique()
+                scenes_p = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(sel_j_p)]["Scène"].dropna().astype(str).unique()
                 sel_s_p = st.selectbox("🏗️ Scène ", scenes_p, key="scene_patch")
             with f3_p:
-                artistes_p = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]["Artiste"].unique()
+                artistes_p = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j_p)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s_p))]["Artiste"].unique()
                 sel_a_p = st.selectbox("🎸 Groupe ", artistes_p, key="art_patch")
 
                 if sel_a_p and sel_a_p in st.session_state.riders_stockage:
@@ -1390,7 +1395,7 @@ with main_tabs[2]:
                             st.markdown(pdf_link_p, unsafe_allow_html=True)
 
             if sel_a_p:
-                plan_patch = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_p) & (st.session_state.planning["Scène"] == sel_s_p)]
+                plan_patch = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j_p)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s_p))]
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
@@ -1571,12 +1576,12 @@ with main_tabs[2]:
         
         if not st.session_state.planning.empty:
             f1_o, f2_o, f3_o = st.columns(3)
-            with f1_o: sel_j_o = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].unique()), key="jour_patch_out")
+            with f1_o: sel_j_o = st.selectbox("📅 Jour", sorted(st.session_state.planning["Jour"].dropna().astype(str).unique()), key="jour_patch_out")
             with f2_o:
-                scenes_o = st.session_state.planning[st.session_state.planning["Jour"] == sel_j_o]["Scène"].unique()
+                scenes_o = st.session_state.planning[st.session_state.planning["Jour"].astype(str) == str(sel_j_o)]["Scène"].dropna().astype(str).unique()
                 sel_s_o = st.selectbox("🏗️ Scène", scenes_o, key="scene_patch_out")
             with f3_o:
-                artistes_o = st.session_state.planning[(st.session_state.planning["Jour"] == sel_j_o) & (st.session_state.planning["Scène"] == sel_s_o)]["Artiste"].unique()
+                artistes_o = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j_o)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s_o))]["Artiste"].unique()
                 sel_a_o = st.selectbox("🎸 Groupe", artistes_o, key="art_patch_out")
 
                 if sel_a_o and sel_a_o in st.session_state.riders_stockage:
