@@ -825,8 +825,8 @@ with main_tabs[0]:
                             if all_days_res:
                                  final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
                                  for _, row in final.iterrows():
-                                    qty = row["Max_Periode"]
-                                    if qty > 0:
+                                     qty = row["Max_Periode"]
+                                     if qty > 0:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
                                         item_name = f"{marque} {modele}".strip()
                                         if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
@@ -993,11 +993,13 @@ with main_tabs[1]:
                 # Sauvegarde silencieuse (sans st.rerun)
                 df_to_save = edited_df.drop(columns=["Rider"])
                 
-                # NETTOYAGE SECURITE : On supprime les lignes complètement vides ou sans artiste ajoutées par erreur via l'éditeur
-                df_to_save = df_to_save.dropna(how="all")
-                df_to_save = df_to_save.dropna(subset=["Artiste"]).reset_index(drop=True)
+                # NETTOYAGE SECURITE : On supprime uniquement les lignes complètement vides
+                # Suppression du (subset=["Artiste"]) pour éviter la disparition d'une ligne en cours de saisie
+                df_to_save = df_to_save.dropna(how="all").reset_index(drop=True)
                 
-                st.session_state.planning = df_to_save
+                # Sauvegarde silencieuse uniquement si modification
+                if not df_visu.drop(columns=["Rider"]).reset_index(drop=True).equals(df_to_save):
+                    st.session_state.planning = df_to_save
                 
                 # Nettoyage silencieux des PDFs pour les artistes supprimés via la corbeille native
                 artistes_actifs = st.session_state.planning["Artiste"].unique()
@@ -1119,8 +1121,9 @@ with main_tabs[1]:
                 },
                 key="fest_ed"
             )
-            # Sauvegarde silencieuse
-            st.session_state.contacts_festival = edited_fest
+            # Sauvegarde silencieuse uniquement si modification
+            if not df_fest_data.reset_index(drop=True).equals(edited_fest.reset_index(drop=True)):
+                st.session_state.contacts_festival = edited_fest
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
@@ -1142,8 +1145,9 @@ with main_tabs[1]:
                     },
                     key=f"sc_ed_{s}"
                 )
-                # Sauvegarde silencieuse
-                st.session_state.contacts_scenes[s] = edited_scene
+                # Sauvegarde silencieuse uniquement si modification
+                if not df_scene_data.reset_index(drop=True).equals(edited_scene.reset_index(drop=True)):
+                    st.session_state.contacts_scenes[s] = edited_scene
 
         st.divider()
         st.subheader("Contact Artistes")
@@ -1172,8 +1176,9 @@ with main_tabs[1]:
                         },
                         key=f"art_ed_{a}"
                     )
-                    # Sauvegarde silencieuse
-                    st.session_state.contacts_artistes[a] = edited_art
+                    # Sauvegarde silencieuse uniquement si modification
+                    if not df_art_data.reset_index(drop=True).equals(edited_art.reset_index(drop=True)):
+                        st.session_state.contacts_artistes[a] = edited_art
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
 
@@ -1248,20 +1253,21 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun)
-                        mask_alim = (
-                            (st.session_state.alim_elec["Groupe"] == sel_a) &
-                            (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
-                            (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
-                        )
-                        st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
-                        
-                        if not edited_alim.empty:
-                            new_alim = edited_alim.copy()
-                            new_alim["Groupe"] = sel_a
-                            new_alim["Scène"] = sel_s
-                            new_alim["Jour"] = sel_j
-                            st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
+                        # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun) uniquement si modification
+                        if not df_alim_art[["Format", "Métier", "Emplacement"]].reset_index(drop=True).equals(edited_alim.reset_index(drop=True)):
+                            mask_alim = (
+                                (st.session_state.alim_elec["Groupe"] == sel_a) &
+                                (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
+                                (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
+                            )
+                            st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
+                            
+                            if not edited_alim.empty:
+                                new_alim = edited_alim.copy()
+                                new_alim["Groupe"] = sel_a
+                                new_alim["Scène"] = sel_s
+                                new_alim["Jour"] = sel_j
+                                st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
@@ -1326,7 +1332,7 @@ with main_tabs[2]:
                         else:
                             mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                             if not st.session_state.fiches_tech[mask].empty:
-                                st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
+                                 st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                             else:
                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
@@ -1343,17 +1349,18 @@ with main_tabs[2]:
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
                     
-                    # Sauvegarde silencieuse de la table items (gère suppression et ajout natif)
-                    mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
-                    other_fiches = st.session_state.fiches_tech[~mask_fiches]
-                    
-                    if not edited_patch.empty:
-                        # Assurer que les nouvelles lignes ajoutées nativement récupèrent les bonnes méta-données cachées
-                        edited_patch["Scène"] = sel_s
-                        edited_patch["Jour"] = sel_j
-                        edited_patch["Groupe"] = sel_a
+                    # Sauvegarde silencieuse de la table items uniquement si modification
+                    if not df_patch_art.reset_index(drop=True).equals(edited_patch.reset_index(drop=True)):
+                        mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
+                        other_fiches = st.session_state.fiches_tech[~mask_fiches]
                         
-                    st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
+                        if not edited_patch.empty:
+                            # Assurer que les nouvelles lignes ajoutées nativement récupèrent les bonnes méta-données cachées
+                            edited_patch["Scène"] = sel_s
+                            edited_patch["Jour"] = sel_j
+                            edited_patch["Groupe"] = sel_a
+                            
+                        st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1363,7 +1370,7 @@ with main_tabs[2]:
                     if not df_b.empty:
                          matrice = df_b.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
                          for a in liste_art: 
-                            if a not in matrice.columns: matrice[a] = 0
+                             if a not in matrice.columns: matrice[a] = 0
                          matrice = matrice[liste_art]
                          res = pd.concat([matrice.iloc[:, i] + matrice.iloc[:, i+1] for i in range(len(liste_art)-1)], axis=1).max(axis=1) if len(liste_art) > 1 else matrice.iloc[:, 0]
                          df_res = res.reset_index()
@@ -1515,8 +1522,9 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
-                            # Sauvegarde silencieuse
-                            curr_state[mode_key]["MASTER"] = edited_master
+                            # Sauvegarde silencieuse uniquement si modification
+                            if not tables_data["MASTER"].reset_index(drop=True).equals(edited_master.reset_index(drop=True)):
+                                curr_state[mode_key]["MASTER"] = edited_master
 
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
@@ -1563,8 +1571,9 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
-                            # Sauvegarde silencieuse
-                            curr_state[mode_key][t_name] = edited_dep
+                            # Sauvegarde silencieuse uniquement si modification
+                            if not tables_data[t_name].reset_index(drop=True).equals(edited_dep.reset_index(drop=True)):
+                                curr_state[mode_key][t_name] = edited_dep
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
@@ -1660,8 +1669,9 @@ with main_tabs[2]:
                             },
                             hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
                         )
-                        # Sauvegarde silencieuse
-                        st.session_state.patches_out[sel_a_o] = edited_out
+                        # Sauvegarde silencieuse uniquement si modification
+                        if not st.session_state.patches_out[sel_a_o].reset_index(drop=True).equals(edited_out.reset_index(drop=True)):
+                            st.session_state.patches_out[sel_a_o] = edited_out
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
             else:
