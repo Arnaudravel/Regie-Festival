@@ -90,10 +90,6 @@ if 'patches_out' not in st.session_state:
     st.session_state.patches_out = {}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
-if 'delete_confirm_idx' not in st.session_state:
-    st.session_state.delete_confirm_idx = None
-if 'delete_confirm_patch_idx' not in st.session_state:
-    st.session_state.delete_confirm_patch_idx = None
 if 'festival_name' not in st.session_state:
     st.session_state.festival_name = "MON FESTIVAL"
 if 'festival_logo' not in st.session_state:
@@ -109,13 +105,41 @@ if 'notes_artistes' not in st.session_state:
 if 'alim_elec' not in st.session_state:
     st.session_state.alim_elec = pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"])
 
-# NOUVEAUX STATES POUR LES CONTACTS
+# NOUVEAUX STATES POUR LES CONTACTS (Convertis automatiquement en DataFrames via fonction dédiée)
 if 'contacts_festival' not in st.session_state:
-    st.session_state.contacts_festival = {"dir_tech": {}, "regie_gen": {}, "regie_gen_scene": ""}
+    st.session_state.contacts_festival = {}
 if 'contacts_scenes' not in st.session_state:
     st.session_state.contacts_scenes = {}
 if 'contacts_artistes' not in st.session_state:
     st.session_state.contacts_artistes = {}
+
+# --- HELPER CONTACTS MIGRATION ---
+# Permet de convertir les anciens dictionnaires en DataFrame pour supporter les lignes dynamiques
+def get_migrated_contacts(contact_data, default_roles_map):
+    if isinstance(contact_data, pd.DataFrame):
+        if "Canal Talkie" not in contact_data.columns:
+            contact_data["Canal Talkie"] = ""
+        return contact_data
+    records = []
+    if isinstance(contact_data, dict) and contact_data:
+        for code, data in contact_data.items():
+            if isinstance(data, dict):
+                records.append({
+                    "Rôle": default_roles_map.get(code, code),
+                    "Nom": data.get("Nom", ""),
+                    "Prénom": data.get("Prénom", ""),
+                    "Tel": data.get("Tel", ""),
+                    "Mail": data.get("Mail", ""),
+                    "Canal Talkie": ""
+                })
+    return pd.DataFrame(records, columns=["Rôle", "Nom", "Prénom", "Tel", "Mail", "Canal Talkie"])
+
+# Options communes pour le menu déroulant "Rôle"
+ROLES_OPTIONS = [
+    "Stage Manager", "Regie SON FOH", "Regie SON MON", "Regie LUM", "Regie VIDEO", 
+    "Régie générale", "Régie Technique", "Direction technique", 
+    "Saisie libre 1", "Saisie libre 2", "Saisie libre 3", "Autre"
+]
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -195,7 +219,6 @@ class FestivalPDF(FPDF):
             act = str(row['Activité'])
             art = str(row['Artiste']).encode('latin-1', 'replace').decode('latin-1')
             
-            # Couleurs dynamiques selon la phase technique
             act_upper = act.upper()
             if "LOAD IN" in act_upper: self.set_fill_color(180, 220, 255)
             elif "INST OFF" in act_upper: self.set_fill_color(255, 230, 180)
@@ -357,15 +380,6 @@ def compute_times(deb, fin, dur):
             dt_fin = dt_deb + datetime.timedelta(minutes=int(dur))
             return deb, dt_fin.strftime("%H:%M")
     return deb, fin
-
-def format_contact(role, data):
-    if not data: return ""
-    nom = data.get("Nom", "").strip()
-    prenom = data.get("Prénom", "").strip()
-    tel = data.get("Tel", "").strip()
-    mail = data.get("Mail", "").strip()
-    if not (nom or prenom or tel or mail): return ""
-    return f"{role} : {prenom} {nom} - {tel} - {mail}".strip(" -")
 
 # --- HELPER POUR LE PLANNING VISUEL (A3 PORTRAIT) ---
 def generer_pdf_planning_visuel(df_scene, titre):
@@ -540,7 +554,7 @@ with main_tabs[0]:
                             st.session_state.easyjob_mapping = data_loaded.get("easyjob_mapping", {})
                             st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
                             st.session_state.alim_elec = data_loaded.get("alim_elec", pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"]))
-                            st.session_state.contacts_festival = data_loaded.get("contacts_festival", {"dir_tech": {}, "regie_gen": {}, "regie_gen_scene": ""})
+                            st.session_state.contacts_festival = data_loaded.get("contacts_festival", {})
                             st.session_state.contacts_scenes = data_loaded.get("contacts_scenes", {})
                             st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
                             st.success("Session restaurée avec succès !")
@@ -678,13 +692,13 @@ with main_tabs[0]:
                         if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
                             c = st.session_state.artist_circuits[sel_grp_exp]
                             q_in, q_ear, q_ms, q_mm = c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)
-                            if q_in == 0 and q_ear == 0 and q_ms == 0 and q_mm == 0:
-                                dico_besoins["--- CONFIGURATION CIRCUITS ---"] = "Non renseigné"
-                            else:
-                                dico_besoins["--- CONFIGURATION CIRCUITS ---"] = pd.DataFrame({
-                                    "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono"],
-                                    "Quantité": [q_in, q_ear, q_ms, q_mm]
-                                })
+                            q_sides = c.get("sides_monitors", False)
+                            
+                            df_circuits = pd.DataFrame({
+                                "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
+                                "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
+                            })
+                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = df_circuits
 
                         def calcul_pic(df_input, jour, scene):
                             if sel_grp_exp != "Tous":
@@ -744,13 +758,27 @@ with main_tabs[0]:
                         if notes_list_text: dico_besoins["--- INFORMATIONS COMPLEMENTAIRES / NOTES ---"] = "\n\n".join(notes_list_text)
 
                         contact_texts = []
+                        roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
                         for a in arts_scope:
-                            c_data = st.session_state.contacts_artistes.get(a, {})
-                            if c_data:
+                            c_df = get_migrated_contacts(st.session_state.contacts_artistes.get(a), roles_art_map)
+                            if not c_df.empty:
                                 lines = [f"--- CONTACTS : {a} ---"]
-                                for role_code, role_name in [("RG", "Régie générale"), ("RT", "Régie technique"), ("FOH", "Régie SON FOH"), ("MON", "Régie SON MON"), ("LUM", "Régie LUMIERE"), ("VID", "Régie VIDEO")]:
-                                     line = format_contact(role_name, c_data.get(role_code, {}))
-                                     if line: lines.append(line)
+                                for _, row in c_df.iterrows():
+                                    role = str(row.get("Rôle", "")).strip()
+                                    nom = str(row.get("Nom", "")).strip()
+                                    prenom = str(row.get("Prénom", "")).strip()
+                                    tel = str(row.get("Tel", "")).strip()
+                                    mail = str(row.get("Mail", "")).strip()
+                                    talkie = str(row.get("Canal Talkie", "")).strip()
+                                    
+                                    if nom or prenom or tel or mail or talkie:
+                                        parts = []
+                                        if prenom or nom: parts.append(f"{prenom} {nom}".strip())
+                                        if tel: parts.append(tel)
+                                        if mail: parts.append(mail)
+                                        if talkie: parts.append(f"Talkie: {talkie}")
+                                        lines.append(f"{role} : " + " - ".join(parts))
+                                
                                 if len(lines) > 1: contact_texts.append("\n".join(lines))
                         if contact_texts:
                             dico_besoins["--- REPERTOIRE CONTACTS ARTISTES ---"] = "\n\n".join(contact_texts)
@@ -956,37 +984,20 @@ with main_tabs[1]:
 
         # --- BLOC 2 : PLANNING GLOBAL ---
         with st.expander("📋 Planning Global (Modifiable)", expanded=False):
-            if st.session_state.delete_confirm_idx is not None:
-                idx = st.session_state.delete_confirm_idx
-                with st.status("⚠️ Confirmation de suppression", expanded=True):
-                    st.write(f"Supprimer définitivement l'artiste : **{st.session_state.planning.iloc[idx]['Artiste']}** ?")
-                    col_cfg1, col_cfg2 = st.columns(2)
-                    if col_cfg1.button("✅ OUI, Supprimer", use_container_width=True):
-                        nom_art = st.session_state.planning.iloc[idx]['Artiste']
-                        st.session_state.planning = st.session_state.planning.drop(idx).reset_index(drop=True)
-                        artistes_actifs = st.session_state.planning["Artiste"].unique()
-                        keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                        for k in keys_to_delete: del st.session_state.riders_stockage[k]
-                        st.session_state.delete_confirm_idx = None
-                        st.rerun()
-                    if col_cfg2.button("❌ Annuler", use_container_width=True):
-                        st.session_state.delete_confirm_idx = None
-                        st.rerun()
-
             if not st.session_state.planning.empty:
                 df_visu = st.session_state.planning.copy()
                 df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
+                
                 edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
-                if st.session_state.main_editor["deleted_rows"]:
-                    st.session_state.delete_confirm_idx = df_visu.index[st.session_state.main_editor["deleted_rows"][0]]
-                    st.rerun()
+                
+                # Sauvegarde silencieuse (sans st.rerun)
                 df_to_save = edited_df.drop(columns=["Rider"])
-                if not df_to_save.equals(st.session_state.planning):
-                    st.session_state.planning = df_to_save.reset_index(drop=True)
-                    artistes_actifs = st.session_state.planning["Artiste"].unique()
-                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                    for k in keys_to_delete: del st.session_state.riders_stockage[k]
-                    st.rerun()
+                st.session_state.planning = df_to_save.reset_index(drop=True)
+                
+                # Nettoyage silencieux des PDFs pour les artistes supprimés via la corbeille native
+                artistes_actifs = st.session_state.planning["Artiste"].unique()
+                keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                for k in keys_to_delete: del st.session_state.riders_stockage[k]
 
         # --- BLOC 3 : GESTION PDF ---
         with st.expander("📁 Gestion des Fichiers PDF", expanded=False):
@@ -1051,7 +1062,6 @@ with main_tabs[1]:
                         import numpy as np
                         df_gantt = pd.DataFrame(gantt_data)
                         
-                        # Couleurs calquées sur l'export PDF graphique
                         color_map = {
                             "Load IN": "#4a90e2", "Inst Off Stage": "#f39c12", 
                             "Inst On Stage": "#e67e22", "Balance": "#8e44ad", 
@@ -1088,43 +1098,47 @@ with main_tabs[1]:
     with sub_tabs_fest[1]:
         # --- BLOC FESTIVAL ---
         with st.expander("Contact Festival", expanded=False):
-            roles_fest = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
-            df_fest_data = []
-            for code, name in roles_fest.items():
-                cd = st.session_state.contacts_festival.get(code, {})
-                df_fest_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+            roles_fest_map = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
+            df_fest_data = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map)
             
             edited_fest = st.data_editor(
-                pd.DataFrame(df_fest_data),
-                use_container_width=True, hide_index=True,
-                column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                df_fest_data,
+                use_container_width=True, hide_index=True, num_rows="dynamic",
+                column_config={
+                    "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                    "Nom": st.column_config.TextColumn("Nom"),
+                    "Prénom": st.column_config.TextColumn("Prénom"),
+                    "Tel": st.column_config.TextColumn("Tel"),
+                    "Mail": st.column_config.TextColumn("Mail"),
+                    "Canal Talkie": st.column_config.TextColumn("Canal Talkie")
+                },
                 key="fest_ed"
             )
-            for idx, row in edited_fest.iterrows():
-                code = list(roles_fest.keys())[idx]
-                st.session_state.contacts_festival[code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
+            # Sauvegarde silencieuse
+            st.session_state.contacts_festival = edited_fest
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
         for s in scenes:
             with st.expander(f"Contact : {s}", expanded=False):
-                if s not in st.session_state.contacts_scenes:
-                    st.session_state.contacts_scenes[s] = {}
-                roles_scene = {"SM": "STAGE MANAGER", "FOH": "REGIE SON FOH", "MON": "REGIE SON MON", "LUM": "REGIE LUMIERE", "VID": "REGIE VIDEO"}
-                df_scene_data = []
-                for code, name in roles_scene.items():
-                    cd = st.session_state.contacts_scenes[s].get(code, {})
-                    df_scene_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+                roles_scene_map = {"SM": "Stage Manager", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
+                df_scene_data = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map)
                 
                 edited_scene = st.data_editor(
-                    pd.DataFrame(df_scene_data),
-                    use_container_width=True, hide_index=True,
-                    column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                    df_scene_data,
+                    use_container_width=True, hide_index=True, num_rows="dynamic",
+                    column_config={
+                        "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                        "Nom": st.column_config.TextColumn("Nom"),
+                        "Prénom": st.column_config.TextColumn("Prénom"),
+                        "Tel": st.column_config.TextColumn("Tel"),
+                        "Mail": st.column_config.TextColumn("Mail"),
+                        "Canal Talkie": st.column_config.TextColumn("Canal Talkie")
+                    },
                     key=f"sc_ed_{s}"
                 )
-                for idx, row in edited_scene.iterrows():
-                    code = list(roles_scene.keys())[idx]
-                    st.session_state.contacts_scenes[s][code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
+                # Sauvegarde silencieuse
+                st.session_state.contacts_scenes[s] = edited_scene
 
         st.divider()
         st.subheader("Contact Artistes")
@@ -1137,24 +1151,24 @@ with main_tabs[1]:
             
             for a in artistes_jour:
                 with st.expander(f"Contact : {a}", expanded=False):
-                    if a not in st.session_state.contacts_artistes:
-                        st.session_state.contacts_artistes[a] = {}
-                    
-                    roles_art = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Régie SON FOH", "MON": "Régie SON MON", "LUM": "Régie LUMIERE", "VID": "Régie VIDEO"}
-                    df_art_data = []
-                    for code, name in roles_art.items():
-                        cd = st.session_state.contacts_artistes[a].get(code, {})
-                        df_art_data.append({"Rôle": name, "Nom": cd.get("Nom",""), "Prénom": cd.get("Prénom",""), "Tel": cd.get("Tel",""), "Mail": cd.get("Mail","")})
+                    roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
+                    df_art_data = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map)
                     
                     edited_art = st.data_editor(
-                        pd.DataFrame(df_art_data),
-                        use_container_width=True, hide_index=True,
-                        column_config={"Rôle": st.column_config.Column("Rôle", disabled=True)},
+                        df_art_data,
+                        use_container_width=True, hide_index=True, num_rows="dynamic",
+                        column_config={
+                            "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                            "Nom": st.column_config.TextColumn("Nom"),
+                            "Prénom": st.column_config.TextColumn("Prénom"),
+                            "Tel": st.column_config.TextColumn("Tel"),
+                            "Mail": st.column_config.TextColumn("Mail"),
+                            "Canal Talkie": st.column_config.TextColumn("Canal Talkie")
+                        },
                         key=f"art_ed_{a}"
                     )
-                    for idx, row in edited_art.iterrows():
-                        code = list(roles_art.keys())[idx]
-                        st.session_state.contacts_artistes[a][code] = {"Nom": row["Nom"], "Prénom": row["Prénom"], "Tel": row["Tel"], "Mail": row["Mail"]}
+                    # Sauvegarde silencieuse
+                    st.session_state.contacts_artistes[a] = edited_art
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
 
@@ -1195,7 +1209,7 @@ with main_tabs[2]:
                     with col_circ:
                         st.markdown(f"**⚙️ Configuration circuits**")
                         if sel_a not in st.session_state.artist_circuits:
-                            st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0}
+                            st.session_state.artist_circuits[sel_a] = {"inputs": 0, "ear_stereo": 0, "mon_stereo": 0, "mon_mono": 0, "sides_monitors": False}
                         
                         c_circ1, c_circ2 = st.columns(2)
                         with c_circ1:
@@ -1204,6 +1218,9 @@ with main_tabs[2]:
                         with c_circ2:
                             st.session_state.artist_circuits[sel_a]["ear_stereo"] = st.number_input("EAR MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("ear_stereo", 0)), key=f"ear_{sel_a}")
                             st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
+                        
+                        # Ajout Checkbox Sides Monitors
+                        st.session_state.artist_circuits[sel_a]["sides_monitors"] = st.checkbox("Sides Monitors", value=bool(st.session_state.artist_circuits[sel_a].get("sides_monitors", False)), key=f"sides_{sel_a}")
 
                     with col_alim:
                         st.markdown(f"**⚡ Alimentation électrique**")
@@ -1226,27 +1243,27 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        if not edited_alim.equals(df_alim_art[["Format", "Métier", "Emplacement"]]):
-                            st.session_state.alim_elec = st.session_state.alim_elec[
-                                ~((st.session_state.alim_elec["Groupe"] == sel_a) &
-                                  (st.session_state.alim_elec["Scène"] == sel_s) &
-                                  (st.session_state.alim_elec["Jour"] == sel_j))
-                            ]
-                            if not edited_alim.empty:
-                                new_alim = edited_alim.copy()
-                                new_alim["Groupe"] = sel_a
-                                new_alim["Scène"] = sel_s
-                                new_alim["Jour"] = sel_j
-                                st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
-                            st.rerun()
+                        # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun)
+                        mask_alim = (
+                            (st.session_state.alim_elec["Groupe"] == sel_a) &
+                            (st.session_state.alim_elec["Scène"] == sel_s) &
+                            (st.session_state.alim_elec["Jour"] == sel_j)
+                        )
+                        st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
+                        
+                        if not edited_alim.empty:
+                            new_alim = edited_alim.copy()
+                            new_alim["Groupe"] = sel_a
+                            new_alim["Scène"] = sel_s
+                            new_alim["Jour"] = sel_j
+                            st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
                     note_val = st.session_state.notes_artistes.get(sel_a, "")
                     new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
-                    if new_note != note_val:
-                        st.session_state.notes_artistes[sel_a] = new_note
-                        st.rerun()
+                    # Mise à jour silencieuse
+                    st.session_state.notes_artistes[sel_a] = new_note
 
                 st.divider()
                 with st.expander(f"📥 Saisie Matériel : {sel_a}", expanded=True):
@@ -1311,32 +1328,27 @@ with main_tabs[2]:
                             st.rerun()
 
                 st.divider()
-                if st.session_state.delete_confirm_patch_idx is not None:
-                    pidx = st.session_state.delete_confirm_patch_idx
-                    with st.status("⚠️ Confirmation", expanded=True):
-                         st.write(f"Supprimer : **{st.session_state.fiches_tech.iloc[pidx]['Modèle']}** ?")
-                         if st.button("✅ Confirmer"):
-                            st.session_state.fiches_tech = st.session_state.fiches_tech.drop(pidx).reset_index(drop=True)
-                            st.session_state.delete_confirm_patch_idx = None
-                            st.rerun()
-                         if st.button("❌ Annuler"):
-                            st.session_state.delete_confirm_patch_idx = None
-                            st.rerun()
-
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
                     df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
+                    
                     edited_patch = st.data_editor(
                         df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
-                    if st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"]:
-                        st.session_state.delete_confirm_patch_idx = df_patch_art.index[st.session_state[f"ed_patch_{sel_a}"]["deleted_rows"][0]]
-                        st.rerun()
-                    if not edited_patch.equals(df_patch_art):
-                        st.session_state.fiches_tech.update(edited_patch)
-                        st.rerun()
+                    
+                    # Sauvegarde silencieuse de la table items (gère suppression et ajout natif)
+                    mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
+                    other_fiches = st.session_state.fiches_tech[~mask_fiches]
+                    
+                    if not edited_patch.empty:
+                        # Assurer que les nouvelles lignes ajoutées nativement récupèrent les bonnes méta-données cachées
+                        edited_patch["Scène"] = sel_s
+                        edited_patch["Jour"] = sel_j
+                        edited_patch["Groupe"] = sel_a
+                        
+                    st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1382,6 +1394,7 @@ with main_tabs[2]:
                 liste_art_patch = plan_patch["Artiste"].tolist()
 
                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+                def get_sides(art): return bool(st.session_state.artist_circuits.get(art, {}).get("sides_monitors", False))
 
                 max_inputs, max_ear, max_mon_s, max_mon_m = 0, 0, 0, 0
 
@@ -1401,11 +1414,12 @@ with main_tabs[2]:
 
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_p}")
-                col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                col_grp1, col_grp2, col_grp3, col_grp4, col_grp5 = st.columns(5)
                 with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_p, "inputs"))
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_p, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_p, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_p, "mon_mono"))
+                with col_grp5: st.metric("SIDES Monitors", "OUI" if get_sides(sel_a_p) else "NON")
 
                 st.divider()
                 nb_inputs_groupe = get_circ(sel_a_p, "inputs")
@@ -1496,9 +1510,8 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
-                            if not edited_master.equals(tables_data["MASTER"]):
-                                curr_state[mode_key]["MASTER"] = edited_master
-                                st.rerun()
+                            # Sauvegarde silencieuse
+                            curr_state[mode_key]["MASTER"] = edited_master
 
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
@@ -1545,9 +1558,8 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
-                            if not edited_dep.equals(tables_data[t_name]):
-                                curr_state[mode_key][t_name] = edited_dep
-                                st.rerun()
+                            # Sauvegarde silencieuse
+                            curr_state[mode_key][t_name] = edited_dep
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
@@ -1579,23 +1591,26 @@ with main_tabs[2]:
 
             if sel_a_o:
                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
+                def get_sides(art): return bool(st.session_state.artist_circuits.get(art, {}).get("sides_monitors", False))
 
                 st.divider()
                 st.subheader(f"🎛️ Besoins spécifiques au groupe : {sel_a_o}")
-                col_grp1, col_grp2, col_grp3, col_grp4 = st.columns(4)
+                col_grp1, col_grp2, col_grp3, col_grp4, col_grp5 = st.columns(5)
                 with col_grp1: st.metric("Circuits Entrées", get_circ(sel_a_o, "inputs"))
                 with col_grp2: st.metric("EAR Stéréo", get_circ(sel_a_o, "ear_stereo"))
                 with col_grp3: st.metric("MON Stéréo", get_circ(sel_a_o, "mon_stereo"))
                 with col_grp4: st.metric("MON Mono", get_circ(sel_a_o, "mon_mono"))
+                with col_grp5: st.metric("SIDES Monitors", "OUI" if get_sides(sel_a_o) else "NON")
 
                 st.divider()
 
                 nb_ear_st = get_circ(sel_a_o, "ear_stereo")
                 nb_mon_st = get_circ(sel_a_o, "mon_stereo")
                 nb_mon_mo = get_circ(sel_a_o, "mon_mono")
+                has_sides = get_sides(sel_a_o)
                 
-                # EAR Stereo = 2, MON Stereo = 2, MON Mono = 1
-                nb_rows_out = (nb_ear_st * 2) + (nb_mon_st * 2) + nb_mon_mo
+                # Formule pour les lignes du Patch OUT (Sides Monitors ajoutent 2 lignes)
+                nb_rows_out = (nb_ear_st * 2) + (nb_mon_st * 2) + nb_mon_mo + (2 if has_sides else 0)
 
                 if nb_rows_out > 0:
                     if sel_a_o not in st.session_state.patches_out:
@@ -1609,7 +1624,6 @@ with main_tabs[2]:
                         qty = int(row["Quantité"])
                         for i in range(1, qty + 1): out_instances.append(f"{row['Modèle']} #{i}")
                     
-                    # On rajoute quelques options de saisie libre pour palier à la contrainte native de st.data_editor
                     liste_ampli_ear = [None] + sorted(out_instances) + ["-- Saisie libre 1 --", "-- Saisie libre 2 --", "-- Saisie libre 3 --", "-- Autre --"]
                     
                     if st.session_state.patches_out[sel_a_o] is None or len(st.session_state.patches_out[sel_a_o]) != nb_rows_out:
@@ -1641,10 +1655,9 @@ with main_tabs[2]:
                             },
                             hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
                         )
-                        if not edited_out.equals(st.session_state.patches_out[sel_a_o]):
-                            st.session_state.patches_out[sel_a_o] = edited_out
-                            st.rerun()
+                        # Sauvegarde silencieuse
+                        st.session_state.patches_out[sel_a_o] = edited_out
                 else:
-                    st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON) dans 'Saisie du matériel' pour générer le Patch OUT.")
+                    st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
             else:
                 st.info("⚠️ Ajoutez d'abord des artistes dans le planning et renseignez leurs circuits.")
