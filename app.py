@@ -306,7 +306,8 @@ def generer_pdf_complet(titre_doc, dictionnaire_dfs, orientation='P', format='A4
             pdf.ajouter_titre_section(section)
             pdf.dessiner_texte(data)
             
-    return pdf.output(dest='S').encode('latin-1')
+    out = pdf.output(dest='S')
+    return out.encode('latin-1') if isinstance(out, str) else bytes(out)
 
 def generer_pdf_patch(titre_doc, dictionnaire_dfs):
     pdf = FestivalPDF(orientation='L', unit='mm', format='A4')
@@ -326,7 +327,8 @@ def generer_pdf_patch(titre_doc, dictionnaire_dfs):
             pdf.ajouter_titre_section(section)
             pdf.dessiner_texte(data)
             
-    return pdf.output(dest='S').encode('latin-1')
+    out = pdf.output(dest='S')
+    return out.encode('latin-1') if isinstance(out, str) else bytes(out)
 
 # --- HELPERS CHRONO ---
 def time_to_hours(t_str):
