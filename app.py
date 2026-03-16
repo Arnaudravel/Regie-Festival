@@ -114,7 +114,6 @@ if 'contacts_artistes' not in st.session_state:
     st.session_state.contacts_artistes = {}
 
 # --- HELPER CONTACTS MIGRATION ---
-# Permet de convertir les anciens dictionnaires en DataFrame pour supporter les lignes dynamiques
 def get_migrated_contacts(contact_data, default_roles_map):
     if isinstance(contact_data, pd.DataFrame):
         if "Canal Talkie" not in contact_data.columns:
@@ -602,7 +601,7 @@ with main_tabs[0]:
                                                     new_mapping[sheet][brand][mod] = str(miroirs_raw[i]).strip()
                                                 else:
                                                     new_mapping[sheet][brand][mod] = f"{brand} {mod}"
-                                                    
+                                                   
                                         if modeles_valides:
                                             new_catalog[sheet][brand] = modeles_valides
                                             
@@ -833,13 +832,13 @@ with main_tabs[0]:
                                         cat, marque, modele = row['Catégorie'], row['Marque'], row['Modèle']
                                         item_name = f"{marque} {modele}".strip()
                                         if st.session_state.easyjob_mapping.get(cat, {}).get(marque, {}).get(modele):
-                                             item_name = st.session_state.easyjob_mapping[cat][marque][modele]
+                                            item_name = st.session_state.easyjob_mapping[cat][marque][modele]
                                         export_data.append({"Quantity": qty, "Items": item_name})
                         
                         df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
                         output = io.BytesIO()
                         with pd.ExcelWriter(output) as writer:
-                            df_export.to_excel(writer, index=False, sheet_name='Easyjob')
+                             df_export.to_excel(writer, index=False, sheet_name='Easyjob')
                         excel_data = output.getvalue()
                         st.download_button("📥 Télécharger Excel", excel_data, "easyjob_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -991,12 +990,15 @@ with main_tabs[1]:
                 df_visu = st.session_state.planning.copy()
                 df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
                 
+                # <-- CORRECTION ICI : Reset index avant d'envoyer au data_editor [cite: 181, 182]
+                df_visu = df_visu.reset_index(drop=True)
+                
                 edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
                 
                 # Sauvegarde silencieuse (sans st.rerun)
                 df_to_save = edited_df.drop(columns=["Rider"])
                 
-                # NETTOYAGE SECURITE : On supprime les lignes complètement vides ou sans artiste ajoutées par erreur via l'éditeur
+                # NETTOYAGE SECURITE : On supprime les lignes complètement vides ou sans artiste
                 df_to_save = df_to_save.dropna(how="all")
                 df_to_save = df_to_save.dropna(subset=["Artiste"]).reset_index(drop=True)
                 
@@ -1107,7 +1109,8 @@ with main_tabs[1]:
         # --- BLOC FESTIVAL ---
         with st.expander("Contact Festival", expanded=False):
             roles_fest_map = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
-            df_fest_data = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map)
+            # <-- CORRECTION ICI : Reset index [cite: 209]
+            df_fest_data = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map).reset_index(drop=True)
             
             edited_fest = st.data_editor(
                 df_fest_data,
@@ -1130,7 +1133,8 @@ with main_tabs[1]:
         for s in scenes:
             with st.expander(f"Contact : {s}", expanded=False):
                 roles_scene_map = {"SM": "Stage Manager", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                df_scene_data = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map)
+                # <-- CORRECTION ICI : Reset index [cite: 212]
+                df_scene_data = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map).reset_index(drop=True)
                 
                 edited_scene = st.data_editor(
                     df_scene_data,
@@ -1160,7 +1164,8 @@ with main_tabs[1]:
             for a in artistes_jour:
                 with st.expander(f"Contact : {a}", expanded=False):
                     roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                    df_art_data = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map)
+                    # <-- CORRECTION ICI : Reset index [cite: 218]
+                    df_art_data = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map).reset_index(drop=True)
                     
                     edited_art = st.data_editor(
                         df_art_data,
@@ -1232,11 +1237,12 @@ with main_tabs[2]:
 
                     with col_alim:
                         st.markdown(f"**⚡ Alimentation électrique**")
+                        # <-- CORRECTION ICI : Reset index [cite: 235]
                         df_alim_art = st.session_state.alim_elec[
                             (st.session_state.alim_elec["Groupe"] == sel_a) &
                             (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
                             (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
-                        ]
+                        ].reset_index(drop=True)
                         
                         edited_alim = st.data_editor(
                             df_alim_art[["Format", "Métier", "Emplacement"]],
@@ -1251,7 +1257,7 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        # Sauvegarde silencieuse de l'alimentation électrique (sans st.rerun)
+                        # Sauvegarde silencieuse de l'alimentation électrique
                         mask_alim = (
                             (st.session_state.alim_elec["Groupe"] == sel_a) &
                             (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
@@ -1270,7 +1276,6 @@ with main_tabs[2]:
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
                     note_val = st.session_state.notes_artistes.get(sel_a, "")
                     new_note = st.text_area("Précisez ici si le groupe fournit ses micros, du câblage spécifique, etc.", value=note_val, key=f"note_area_{sel_a}")
-                    # Mise à jour silencieuse
                     st.session_state.notes_artistes[sel_a] = new_note
 
                 st.divider()
@@ -1329,7 +1334,7 @@ with main_tabs[2]:
                         else:
                             mask = (st.session_state.fiches_tech["Groupe"] == sel_a) & (st.session_state.fiches_tech["Modèle"] == v_mod) & (st.session_state.fiches_tech["Marque"] == v_mar) & (st.session_state.fiches_tech["Artiste_Apporte"] == v_app)
                             if not st.session_state.fiches_tech[mask].empty:
-                                 st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
+                                st.session_state.fiches_tech.loc[mask, "Quantité"] += v_qte
                             else:
                                 new_item = pd.DataFrame([{"Scène": sel_s, "Jour": sel_j, "Groupe": sel_a, "Catégorie": v_cat, "Marque": v_mar, "Modèle": v_mod, "Quantité": v_qte, "Artiste_Apporte": v_app}])
                                 st.session_state.fiches_tech = pd.concat([st.session_state.fiches_tech, new_item], ignore_index=True)
@@ -1339,7 +1344,8 @@ with main_tabs[2]:
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
-                    df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"])
+                    # <-- CORRECTION ICI : Reset index [cite: 264]
+                    df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"]).reset_index(drop=True)
                     
                     edited_patch = st.data_editor(
                         df_patch_art, use_container_width=True, num_rows="dynamic", key=f"ed_patch_{sel_a}", hide_index=True,
@@ -1520,8 +1526,9 @@ with main_tabs[2]:
                         avail_micros_master = [m for m in liste_micros if m not in used_micros_all or m in current_micros_master]
 
                         with st.expander(f"{label_master} ({nb_inputs_groupe} Lignes limitées par max circuits entrées)", expanded=True):
+                            # <-- CORRECTION ICI : Reset index [cite: 308]
                             edited_master = st.data_editor(
-                                tables_src["MASTER"],
+                                tables_src["MASTER"].reset_index(drop=True),
                                 column_config={
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_master_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_master),
@@ -1554,8 +1561,9 @@ with main_tabs[2]:
                         avail_micros_dep = [m for m in liste_micros if m not in used_micros_all or m in current_micros_dep]
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
+                            # <-- CORRECTION ICI : Reset index [cite: 318]
                             edited_dep = st.data_editor(
-                                tables_src[t_name],
+                                tables_src[t_name].reset_index(drop=True),
                                 column_config={
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
                                     "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
@@ -1665,8 +1673,9 @@ with main_tabs[2]:
                         })
                         
                     with st.expander(f"Tableau PATCH OUT ({nb_rows_out} lignes générées)", expanded=True):
+                        # <-- CORRECTION ICI : Reset index [cite: 347]
                         edited_out = st.data_editor(
-                            st.session_state.patches_out[sel_a_o],
+                            st.session_state.patches_out[sel_a_o].reset_index(drop=True),
                             column_config={
                                 "Mix / Aux": st.column_config.TextColumn("Mix / Aux"),
                                 "Sortie Console / Stage": st.column_config.TextColumn("Sortie Console / Stage"),
