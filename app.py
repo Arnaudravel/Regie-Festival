@@ -989,25 +989,24 @@ with main_tabs[1]:
             if not st.session_state.planning.empty:
                 df_visu = st.session_state.planning.copy()
                 df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-                
-                # <-- CORRECTION ICI : Reset index avant d'envoyer au data_editor [cite: 181, 182]
                 df_visu = df_visu.reset_index(drop=True)
                 
                 edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
                 
-                # Sauvegarde silencieuse (sans st.rerun)
-                df_to_save = edited_df.drop(columns=["Rider"])
-                
-                # NETTOYAGE SECURITE : On supprime les lignes complètement vides ou sans artiste
-                df_to_save = df_to_save.dropna(how="all")
-                df_to_save = df_to_save.dropna(subset=["Artiste"]).reset_index(drop=True)
-                
-                st.session_state.planning = df_to_save
-                
-                # Nettoyage silencieux des PDFs pour les artistes supprimés via la corbeille native
-                artistes_actifs = st.session_state.planning["Artiste"].unique()
-                keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
-                for k in keys_to_delete: del st.session_state.riders_stockage[k]
+                # <-- CORRECTION 1 : On ne sauvegarde que si l'utilisateur a VRAIMENT fait une modification
+                if not edited_df.equals(df_visu):
+                    df_to_save = edited_df.drop(columns=["Rider"])
+                    
+                    # <-- CORRECTION 2 : On supprime le dropna sur l'Artiste pour ne pas tuer les lignes en cours de création !
+                    df_to_save = df_to_save.dropna(how="all").reset_index(drop=True)
+                    df_to_save["Artiste"] = df_to_save["Artiste"].fillna("À définir") # Sécurité pour les nouvelles lignes vides
+                    
+                    st.session_state.planning = df_to_save
+                    
+                    # Nettoyage silencieux des PDFs pour les artistes supprimés
+                    artistes_actifs = st.session_state.planning["Artiste"].unique()
+                    keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
+                    for k in keys_to_delete: del st.session_state.riders_stockage[k]
 
         # --- BLOC 3 : GESTION PDF ---
         with st.expander("📁 Gestion des Fichiers PDF", expanded=False):
@@ -1109,7 +1108,6 @@ with main_tabs[1]:
         # --- BLOC FESTIVAL ---
         with st.expander("Contact Festival", expanded=False):
             roles_fest_map = {"dir_tech": "Direction technique", "regie_gen": "Régie générale"}
-            # <-- CORRECTION ICI : Reset index [cite: 209]
             df_fest_data = get_migrated_contacts(st.session_state.contacts_festival, roles_fest_map).reset_index(drop=True)
             
             edited_fest = st.data_editor(
@@ -1125,15 +1123,15 @@ with main_tabs[1]:
                 },
                 key="fest_ed"
             )
-            # Sauvegarde silencieuse
-            st.session_state.contacts_festival = edited_fest
+            # <-- CORRECTION ICI
+            if not edited_fest.equals(df_fest_data):
+                st.session_state.contacts_festival = edited_fest
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
         for s in scenes:
             with st.expander(f"Contact : {s}", expanded=False):
                 roles_scene_map = {"SM": "Stage Manager", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                # <-- CORRECTION ICI : Reset index [cite: 212]
                 df_scene_data = get_migrated_contacts(st.session_state.contacts_scenes.get(s, {}), roles_scene_map).reset_index(drop=True)
                 
                 edited_scene = st.data_editor(
@@ -1149,8 +1147,9 @@ with main_tabs[1]:
                     },
                     key=f"sc_ed_{s}"
                 )
-                # Sauvegarde silencieuse
-                st.session_state.contacts_scenes[s] = edited_scene
+                # <-- CORRECTION ICI
+                if not edited_scene.equals(df_scene_data):
+                    st.session_state.contacts_scenes[s] = edited_scene
 
         st.divider()
         st.subheader("Contact Artistes")
@@ -1164,7 +1163,6 @@ with main_tabs[1]:
             for a in artistes_jour:
                 with st.expander(f"Contact : {a}", expanded=False):
                     roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
-                    # <-- CORRECTION ICI : Reset index [cite: 218]
                     df_art_data = get_migrated_contacts(st.session_state.contacts_artistes.get(a, {}), roles_art_map).reset_index(drop=True)
                     
                     edited_art = st.data_editor(
@@ -1180,8 +1178,9 @@ with main_tabs[1]:
                         },
                         key=f"art_ed_{a}"
                     )
-                    # Sauvegarde silencieuse
-                    st.session_state.contacts_artistes[a] = edited_art
+                    # <-- CORRECTION ICI
+                    if not edited_art.equals(df_art_data):
+                        st.session_state.contacts_artistes[a] = edited_art
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
 
@@ -1232,20 +1231,20 @@ with main_tabs[2]:
                             st.session_state.artist_circuits[sel_a]["ear_stereo"] = st.number_input("EAR MONITOR // stéréo", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("ear_stereo", 0)), key=f"ear_{sel_a}")
                             st.session_state.artist_circuits[sel_a]["mon_mono"] = st.number_input("MONITOR // mono", min_value=0, value=int(st.session_state.artist_circuits[sel_a].get("mon_mono", 0)), key=f"mm_{sel_a}")
                         
-                        # Ajout Checkbox Sides Monitors
                         st.session_state.artist_circuits[sel_a]["sides_monitors"] = st.checkbox("Sides Monitors", value=bool(st.session_state.artist_circuits[sel_a].get("sides_monitors", False)), key=f"sides_{sel_a}")
 
                     with col_alim:
                         st.markdown(f"**⚡ Alimentation électrique**")
-                        # <-- CORRECTION ICI : Reset index [cite: 235]
                         df_alim_art = st.session_state.alim_elec[
                             (st.session_state.alim_elec["Groupe"] == sel_a) &
                             (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
                             (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
                         ].reset_index(drop=True)
                         
+                        df_alim_sub = df_alim_art[["Format", "Métier", "Emplacement"]]
+                        
                         edited_alim = st.data_editor(
-                            df_alim_art[["Format", "Métier", "Emplacement"]],
+                            df_alim_sub,
                             column_config={
                                 "Format": st.column_config.SelectboxColumn("Format", options=["PC16", "P17 32M", "P17 32T", "P17 63T", "P17 125T"], required=True),
                                 "Métier": st.column_config.TextColumn("Métier", required=True),
@@ -1257,20 +1256,21 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        # Sauvegarde silencieuse de l'alimentation électrique
-                        mask_alim = (
-                            (st.session_state.alim_elec["Groupe"] == sel_a) &
-                            (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
-                            (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
-                        )
-                        st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
-                        
-                        if not edited_alim.empty:
-                            new_alim = edited_alim.copy()
-                            new_alim["Groupe"] = sel_a
-                            new_alim["Scène"] = sel_s
-                            new_alim["Jour"] = sel_j
-                            st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
+                        # <-- CORRECTION ICI
+                        if not edited_alim.equals(df_alim_sub):
+                            mask_alim = (
+                                (st.session_state.alim_elec["Groupe"] == sel_a) &
+                                (st.session_state.alim_elec["Scène"].astype(str) == str(sel_s)) &
+                                (st.session_state.alim_elec["Jour"].astype(str) == str(sel_j))
+                            )
+                            st.session_state.alim_elec = st.session_state.alim_elec[~mask_alim]
+                            
+                            if not edited_alim.empty:
+                                new_alim = edited_alim.copy()
+                                new_alim["Groupe"] = sel_a
+                                new_alim["Scène"] = sel_s
+                                new_alim["Jour"] = sel_j
+                                st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
@@ -1344,7 +1344,6 @@ with main_tabs[2]:
                 col_patch, col_besoin = st.columns(2)
                 with col_patch:
                     st.subheader(f"📋 Items pour {sel_a}")
-                    # <-- CORRECTION ICI : Reset index [cite: 264]
                     df_patch_art = st.session_state.fiches_tech[st.session_state.fiches_tech["Groupe"] == sel_a].sort_values(by=["Catégorie", "Marque"]).reset_index(drop=True)
                     
                     edited_patch = st.data_editor(
@@ -1352,17 +1351,17 @@ with main_tabs[2]:
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
                     
-                    # Sauvegarde silencieuse de la table items (gère suppression et ajout natif)
-                    mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
-                    other_fiches = st.session_state.fiches_tech[~mask_fiches]
-                    
-                    if not edited_patch.empty:
-                        # Assurer que les nouvelles lignes ajoutées nativement récupèrent les bonnes méta-données cachées
-                        edited_patch["Scène"] = sel_s
-                        edited_patch["Jour"] = sel_j
-                        edited_patch["Groupe"] = sel_a
+                    # <-- CORRECTION ICI
+                    if not edited_patch.equals(df_patch_art):
+                        mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
+                        other_fiches = st.session_state.fiches_tech[~mask_fiches]
                         
-                    st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
+                        if not edited_patch.empty:
+                            edited_patch["Scène"] = sel_s
+                            edited_patch["Jour"] = sel_j
+                            edited_patch["Groupe"] = sel_a
+                            
+                        st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1455,7 +1454,6 @@ with main_tabs[2]:
                         
                     mode_key = "12N" if mode_patch == "PATCH 12N" else "20H"
 
-                    # D'abord définir color_map et clean_input pour pouvoir les utiliser dans la restauration et l'injection d'émoji
                     color_map = {1: "🟤", 2: "🔴", 3: "🟠", 4: "🟡", 5: "🟢", 6: "🔵", 7: "🟣", 8: "⚪", 9: "🍏"}
                     def clean_input(val):
                         if pd.isna(val) or not isinstance(val, str): return val
@@ -1463,10 +1461,8 @@ with main_tabs[2]:
                         for e in color_map.values(): res = res.replace(f" {e}", "").replace(e, "").strip()
                         return res
 
-                    # --- CORRECTION DOUBLE STATE POUR LE PATCH IN ---
                     if curr_state.get(mode_key + "_src") is None:
                         if curr_state.get(mode_key) is not None:
-                            # Restauration propre d'une sauvegarde
                             curr_state[mode_key + "_src"] = {k: v.copy() for k, v in curr_state[mode_key].items()}
                             for t_name, df in curr_state[mode_key + "_src"].items():
                                 if "Input" in df.columns:
@@ -1526,9 +1522,9 @@ with main_tabs[2]:
                         avail_micros_master = [m for m in liste_micros if m not in used_micros_all or m in current_micros_master]
 
                         with st.expander(f"{label_master} ({nb_inputs_groupe} Lignes limitées par max circuits entrées)", expanded=True):
-                            # <-- CORRECTION ICI : Reset index [cite: 308]
+                            df_master_in = tables_src["MASTER"].reset_index(drop=True)
                             edited_master = st.data_editor(
-                                tables_src["MASTER"].reset_index(drop=True),
+                                df_master_in,
                                 column_config={
                                     "Input": st.column_config.SelectboxColumn("Input", options=avail_master_inputs),
                                     "Micro / DI": st.column_config.SelectboxColumn("Micro / DI", options=avail_micros_master),
@@ -1537,9 +1533,10 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
-                            # Sauvegarde propre
-                            tables_src["MASTER"] = edited_master.copy()
-                            tables_out["MASTER"] = edited_master.copy()
+                            # <-- CORRECTION ICI
+                            if not edited_master.equals(df_master_in):
+                                tables_src["MASTER"] = edited_master.copy()
+                                tables_out["MASTER"] = edited_master.copy()
 
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
@@ -1561,9 +1558,9 @@ with main_tabs[2]:
                         avail_micros_dep = [m for m in liste_micros if m not in used_micros_all or m in current_micros_dep]
 
                         with st.expander(f"Tableau DEPART {i}", expanded=True):
-                            # <-- CORRECTION ICI : Reset index [cite: 318]
+                            df_dep_in = tables_src[t_name].reset_index(drop=True)
                             edited_dep = st.data_editor(
-                                tables_src[t_name].reset_index(drop=True),
+                                df_dep_in,
                                 column_config={
                                     "Boîtier": st.column_config.SelectboxColumn("Boîtier", options=avail_boxes),
                                     "Input": st.column_config.SelectboxColumn("Input", options=options_inputs),
@@ -1574,25 +1571,24 @@ with main_tabs[2]:
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
                             
-                            # Sauvegarde des données sources pures (sans émoji rajouté)
-                            tables_src[t_name] = edited_dep.copy()
-                            tables_out[t_name] = edited_dep.copy()
-                            
-                            # Injection des émojis UNIQUEMENT dans la sortie (tables_out) pour l'export PDF
-                            # afin de ne pas déclencher le rechargement de Streamlit
-                            for idx in tables_out[t_name].index:
-                                box_val = tables_out[t_name].at[idx, "Boîtier"]
-                                p_val = ""
-                                if pd.notna(box_val) and isinstance(box_val, str):
-                                    for emoji in color_map.values():
-                                        if emoji in box_val:
-                                            p_val = emoji
-                                            break
-                                            
-                                input_val = tables_out[t_name].at[idx, "Input"]
-                                if pd.notna(input_val) and isinstance(input_val, str):
-                                    base_input = clean_input(input_val)
-                                    tables_out[t_name].at[idx, "Input"] = f"{base_input} {p_val}" if p_val else base_input
+                            # <-- CORRECTION ICI
+                            if not edited_dep.equals(df_dep_in):
+                                tables_src[t_name] = edited_dep.copy()
+                                tables_out[t_name] = edited_dep.copy()
+                                
+                                for idx in tables_out[t_name].index:
+                                    box_val = tables_out[t_name].at[idx, "Boîtier"]
+                                    p_val = ""
+                                    if pd.notna(box_val) and isinstance(box_val, str):
+                                        for emoji in color_map.values():
+                                            if emoji in box_val:
+                                                p_val = emoji
+                                                break
+                                                
+                                    input_val = tables_out[t_name].at[idx, "Input"]
+                                    if pd.notna(input_val) and isinstance(input_val, str):
+                                        base_input = clean_input(input_val)
+                                        tables_out[t_name].at[idx, "Input"] = f"{base_input} {p_val}" if p_val else base_input
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
@@ -1673,9 +1669,9 @@ with main_tabs[2]:
                         })
                         
                     with st.expander(f"Tableau PATCH OUT ({nb_rows_out} lignes générées)", expanded=True):
-                        # <-- CORRECTION ICI : Reset index [cite: 347]
+                        df_patch_out_in = st.session_state.patches_out[sel_a_o].reset_index(drop=True)
                         edited_out = st.data_editor(
-                            st.session_state.patches_out[sel_a_o].reset_index(drop=True),
+                            df_patch_out_in,
                             column_config={
                                 "Mix / Aux": st.column_config.TextColumn("Mix / Aux"),
                                 "Sortie Console / Stage": st.column_config.TextColumn("Sortie Console / Stage"),
@@ -1689,8 +1685,9 @@ with main_tabs[2]:
                             },
                             hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
                         )
-                        # Sauvegarde silencieuse
-                        st.session_state.patches_out[sel_a_o] = edited_out
+                        # <-- CORRECTION ICI
+                        if not edited_out.equals(df_patch_out_in):
+                            st.session_state.patches_out[sel_a_o] = edited_out
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
             else:
