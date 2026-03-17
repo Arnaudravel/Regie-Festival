@@ -133,13 +133,6 @@ def get_migrated_contacts(contact_data, default_roles_map):
                 })
     return pd.DataFrame(records, columns=["Rôle", "Nom", "Prénom", "Tel", "Mail", "Canal Talkie"])
 
-# Options communes pour le menu déroulant "Rôle"
-ROLES_OPTIONS = [
-    "Stage Manager", "Regie SON FOH", "Regie SON MON", "Regie LUM", "Regie VIDEO", 
-    "Régie générale", "Régie Technique", "Direction technique", 
-    "Saisie libre 1", "Saisie libre 2", "Saisie libre 3", "Autre"
-]
-
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
     def header(self):
@@ -989,24 +982,21 @@ with main_tabs[1]:
             if not st.session_state.planning.empty:
                 df_visu = st.session_state.planning.copy()
                 df_visu.insert(0, "Rider", df_visu["Artiste"].apply(lambda x: "✅" if st.session_state.riders_stockage.get(x) else "❌"))
-                df_visu = df_visu.reset_index(drop=True)
                 
                 edited_df = st.data_editor(df_visu, use_container_width=True, num_rows="dynamic", key="main_editor", hide_index=True)
                 
-                # <-- CORRECTION 1 : On ne sauvegarde que si l'utilisateur a VRAIMENT fait une modification
                 if not edited_df.equals(df_visu):
                     df_to_save = edited_df.drop(columns=["Rider"])
-                    
-                    # <-- CORRECTION 2 : On supprime le dropna sur l'Artiste pour ne pas tuer les lignes en cours de création !
                     df_to_save = df_to_save.dropna(how="all").reset_index(drop=True)
-                    df_to_save["Artiste"] = df_to_save["Artiste"].fillna("À définir") # Sécurité pour les nouvelles lignes vides
-                    
+                    df_to_save["Artiste"] = df_to_save["Artiste"].fillna("À définir")
                     st.session_state.planning = df_to_save
                     
-                    # Nettoyage silencieux des PDFs pour les artistes supprimés
                     artistes_actifs = st.session_state.planning["Artiste"].unique()
                     keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
                     for k in keys_to_delete: del st.session_state.riders_stockage[k]
+                    
+                    # RERUN FORCE POUR SYNCHRONISER L'UI
+                    st.rerun()
 
         # --- BLOC 3 : GESTION PDF ---
         with st.expander("📁 Gestion des Fichiers PDF", expanded=False):
@@ -1114,7 +1104,7 @@ with main_tabs[1]:
                 df_fest_data,
                 use_container_width=True, hide_index=True, num_rows="dynamic",
                 column_config={
-                    "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                    "Rôle": st.column_config.TextColumn("Rôle (Saisie libre)"),
                     "Nom": st.column_config.TextColumn("Nom"),
                     "Prénom": st.column_config.TextColumn("Prénom"),
                     "Tel": st.column_config.TextColumn("Tel"),
@@ -1123,9 +1113,9 @@ with main_tabs[1]:
                 },
                 key="fest_ed"
             )
-            # <-- CORRECTION ICI
             if not edited_fest.equals(df_fest_data):
                 st.session_state.contacts_festival = edited_fest
+                st.rerun() # <-- CORRECTION UI
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
@@ -1138,7 +1128,7 @@ with main_tabs[1]:
                     df_scene_data,
                     use_container_width=True, hide_index=True, num_rows="dynamic",
                     column_config={
-                        "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                        "Rôle": st.column_config.TextColumn("Rôle (Saisie libre)"),
                         "Nom": st.column_config.TextColumn("Nom"),
                         "Prénom": st.column_config.TextColumn("Prénom"),
                         "Tel": st.column_config.TextColumn("Tel"),
@@ -1147,9 +1137,9 @@ with main_tabs[1]:
                     },
                     key=f"sc_ed_{s}"
                 )
-                # <-- CORRECTION ICI
                 if not edited_scene.equals(df_scene_data):
                     st.session_state.contacts_scenes[s] = edited_scene
+                    st.rerun() # <-- CORRECTION UI
 
         st.divider()
         st.subheader("Contact Artistes")
@@ -1169,7 +1159,7 @@ with main_tabs[1]:
                         df_art_data,
                         use_container_width=True, hide_index=True, num_rows="dynamic",
                         column_config={
-                            "Rôle": st.column_config.SelectboxColumn("Rôle", options=ROLES_OPTIONS),
+                            "Rôle": st.column_config.TextColumn("Rôle (Saisie libre)"),
                             "Nom": st.column_config.TextColumn("Nom"),
                             "Prénom": st.column_config.TextColumn("Prénom"),
                             "Tel": st.column_config.TextColumn("Tel"),
@@ -1178,9 +1168,9 @@ with main_tabs[1]:
                         },
                         key=f"art_ed_{a}"
                     )
-                    # <-- CORRECTION ICI
                     if not edited_art.equals(df_art_data):
                         st.session_state.contacts_artistes[a] = edited_art
+                        st.rerun() # <-- CORRECTION UI
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
 
@@ -1256,7 +1246,6 @@ with main_tabs[2]:
                             key=f"ed_alim_{sel_a}_{sel_s}_{sel_j}"
                         )
                         
-                        # <-- CORRECTION ICI
                         if not edited_alim.equals(df_alim_sub):
                             mask_alim = (
                                 (st.session_state.alim_elec["Groupe"] == sel_a) &
@@ -1271,6 +1260,7 @@ with main_tabs[2]:
                                 new_alim["Scène"] = sel_s
                                 new_alim["Jour"] = sel_j
                                 st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
+                            st.rerun() # <-- CORRECTION UI
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
@@ -1351,7 +1341,6 @@ with main_tabs[2]:
                         column_config={"Scène": None, "Jour": None, "Groupe": None}
                     )
                     
-                    # <-- CORRECTION ICI
                     if not edited_patch.equals(df_patch_art):
                         mask_fiches = (st.session_state.fiches_tech["Groupe"] == sel_a)
                         other_fiches = st.session_state.fiches_tech[~mask_fiches]
@@ -1362,6 +1351,7 @@ with main_tabs[2]:
                             edited_patch["Groupe"] = sel_a
                             
                         st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
+                        st.rerun() # <-- CORRECTION UI
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1533,10 +1523,10 @@ with main_tabs[2]:
                                 },
                                 hide_index=True, use_container_width=True, key=f"ed_master_{mode_key}_{sel_a_p}"
                             )
-                            # <-- CORRECTION ICI
                             if not edited_master.equals(df_master_in):
                                 tables_src["MASTER"] = edited_master.copy()
                                 tables_out["MASTER"] = edited_master.copy()
+                                st.rerun() # <-- CORRECTION UI
 
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
@@ -1571,7 +1561,6 @@ with main_tabs[2]:
                                 hide_index=True, use_container_width=True, key=f"ed_{t_name}_{mode_key}_{sel_a_p}"
                             )
                             
-                            # <-- CORRECTION ICI
                             if not edited_dep.equals(df_dep_in):
                                 tables_src[t_name] = edited_dep.copy()
                                 tables_out[t_name] = edited_dep.copy()
@@ -1589,6 +1578,8 @@ with main_tabs[2]:
                                     if pd.notna(input_val) and isinstance(input_val, str):
                                         base_input = clean_input(input_val)
                                         tables_out[t_name].at[idx, "Input"] = f"{base_input} {p_val}" if p_val else base_input
+                                        
+                                st.rerun() # <-- CORRECTION UI
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
@@ -1653,6 +1644,7 @@ with main_tabs[2]:
                         qty = int(row["Quantité"])
                         for i in range(1, qty + 1): out_instances.append(f"{row['Modèle']} #{i}")
                     
+                    # On garde la liste pour les suggestions (Saisie libre reste en dur ici au cas où)
                     liste_ampli_ear = [None] + sorted(out_instances) + ["-- Saisie libre 1 --", "-- Saisie libre 2 --", "-- Saisie libre 3 --", "-- Autre --"]
                     
                     if st.session_state.patches_out[sel_a_o] is None or len(st.session_state.patches_out[sel_a_o]) != nb_rows_out:
@@ -1685,9 +1677,9 @@ with main_tabs[2]:
                             },
                             hide_index=True, use_container_width=True, key=f"ed_patch_out_{sel_a_o}"
                         )
-                        # <-- CORRECTION ICI
                         if not edited_out.equals(df_patch_out_in):
                             st.session_state.patches_out[sel_a_o] = edited_out
+                            st.rerun() # <-- CORRECTION UI
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
             else:
