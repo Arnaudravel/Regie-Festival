@@ -175,6 +175,11 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
+        estimated_height = 8 + (len(df) * 6) + 5
+        if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 20):
+            self.add_page()
+            
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -196,6 +201,11 @@ class FestivalPDF(FPDF):
         col_w = [25, 25, 45, 0]
         headers = ["DÉBUT", "FIN", "PHASE", "ARTISTE"]
         
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
+        estimated_height = 8 + (len(df_grid) * 7) + 5
+        if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 15):
+            self.add_page()
+            
         self.set_fill_color(200, 200, 200)
         for i, h in enumerate(headers):
             w = col_w[i] if col_w[i] != 0 else (self.w - 20 - sum(col_w[:3]))
@@ -238,6 +248,11 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
     
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
+        estimated_height = 8 + (len(df) * 6) + 5
+        if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 20):
+            self.add_page()
+            
         self.set_fill_color(220, 230, 255)
         for col in cols:
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
@@ -256,7 +271,7 @@ class FestivalPDF(FPDF):
             
             row_color = (255, 255, 255)
             row_texts = []
-            
+        
             for item in row:
                 if isinstance(item, bool): val = "[ X ]" if item else "[   ]"
                 elif str(item).strip() == "True": val = "[ X ]"
@@ -674,6 +689,13 @@ with main_tabs[0]:
                          
                         dico_besoins = {}
                         
+                        # Définition de la portée des artistes pour les circuits et les contacts
+                        if m_bes == "Par Jour & Scène": 
+                            arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
+                        else:
+                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"].astype(str) == str(s_s_m)]
+                            arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
+
                         if sel_grp_exp != "Tous":
                             df_alim_besoin = st.session_state.alim_elec[
                                 (st.session_state.alim_elec["Groupe"] == sel_grp_exp) & 
@@ -684,16 +706,19 @@ with main_tabs[0]:
                             if not df_alim_besoin.empty:
                                 dico_besoins["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_besoin[["Format", "Métier", "Emplacement"]]
 
-                        if sel_grp_exp != "Tous" and sel_grp_exp in st.session_state.artist_circuits:
-                            c = st.session_state.artist_circuits[sel_grp_exp]
-                            q_in, q_ear, q_ms, q_mm = c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)
-                            q_sides = c.get("sides_monitors", False)
-                            
-                            df_circuits = pd.DataFrame({
-                                "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
-                                "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
-                            })
-                            dico_besoins["--- CONFIGURATION CIRCUITS ---"] = df_circuits
+                        # NOUVEAU COMPORTEMENT DES CIRCUITS : Affiche pour tous les groupes du scope
+                        for a_circ in arts_scope:
+                            if a_circ in st.session_state.artist_circuits:
+                                c = st.session_state.artist_circuits[a_circ]
+                                q_in, q_ear, q_ms, q_mm = c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)
+                                q_sides = c.get("sides_monitors", False)
+                                
+                                df_circuits = pd.DataFrame({
+                                    "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
+                                    "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
+                                })
+                                title_circ = f"--- CONFIGURATION CIRCUITS : {a_circ} ---" if len(arts_scope) > 1 or sel_grp_exp == "Tous" else "--- CONFIGURATION CIRCUITS ---"
+                                dico_besoins[title_circ] = df_circuits
 
                         def calcul_pic(df_input, jour, scene):
                             if sel_grp_exp != "Tous":
@@ -740,11 +765,6 @@ with main_tabs[0]:
                         
                         titre_besoin = f"BESOINS {s_s_m} ({m_bes})"
                         if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
-                        
-                        if m_bes == "Par Jour & Scène": arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
-                        else:
-                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"].astype(str) == str(s_s_m)]
-                            arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
                         
                         notes_list_text = []
                         for a in arts_scope:
@@ -831,7 +851,7 @@ with main_tabs[0]:
                         df_export = pd.DataFrame(export_data, columns=["Quantity", "Items"])
                         output = io.BytesIO()
                         with pd.ExcelWriter(output) as writer:
-                             df_export.to_excel(writer, index=False, sheet_name='Easyjob')
+                            df_export.to_excel(writer, index=False, sheet_name='Easyjob')
                         excel_data = output.getvalue()
                         st.download_button("📥 Télécharger Excel", excel_data, "easyjob_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -863,6 +883,18 @@ with main_tabs[0]:
                     note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
                     if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
                     
+                    # NOUVEAU COMPORTEMENT : Ajout des circuits dans le patch
+                    if s_a_patch in st.session_state.artist_circuits:
+                        c_patch = st.session_state.artist_circuits[s_a_patch]
+                        q_in, q_ear, q_ms, q_mm = c_patch.get("inputs", 0), c_patch.get("ear_stereo", 0), c_patch.get("mon_stereo", 0), c_patch.get("mon_mono", 0)
+                        q_sides = c_patch.get("sides_monitors", False)
+                        
+                        df_circuits_patch = pd.DataFrame({
+                            "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
+                            "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
+                        })
+                        dico_patch["--- CONFIGURATION CIRCUITS ---"] = df_circuits_patch
+                    
                     df_alim_patch = st.session_state.alim_elec[
                         (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
                         (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_patch)) & 
@@ -887,7 +919,8 @@ with main_tabs[0]:
                         else:
                             st.warning(f"⚠️ Aucun Patch OUT trouvé pour {s_a_patch}.")
 
-                    if has_data:
+                    # S'il y a au moins les circuits, on autorise l'export
+                    if has_data or "--- CONFIGURATION CIRCUITS ---" in dico_patch:
                         titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
                         pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
                         st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
