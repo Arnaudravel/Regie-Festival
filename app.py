@@ -130,12 +130,13 @@ def get_migrated_contacts(contact_data, default_roles_map):
                 })
     return pd.DataFrame(records, columns=["Rôle", "Nom", "Prénom", "Tel", "Mail", "Canal Talkie"])
 
-# --- FONCTION TECHNIQUE POUR L'APERÇU PDF ---
-def afficher_preview_pdf(pdf_bytes):
-    st.success("✅ Aperçu généré ! Utilisez les icônes en haut à droite de l'aperçu pour Imprimer ou Enregistrer sous.")
+# --- FONCTION TECHNIQUE POUR OUVRIR LE PDF DANS UN NOUVEL ONGLET ---
+def afficher_preview_pdf(pdf_bytes, filename="document.pdf"):
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf">'
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    # Ouvre le PDF dans un nouvel onglet permettant d'imprimer ou d'enregistrer où on veut.
+    pdf_link = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:10px 20px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:10px; width:100%; text-align:center;">🖨️ Ouvrir le PDF (Nouvel onglet pour Imprimer / Sauvegarder)</a>'
+    st.markdown(pdf_link, unsafe_allow_html=True)
+    st.info("👆 Cliquez sur le bouton rouge. Le PDF s'ouvrira dans une nouvelle page où vous pourrez cliquer sur l'icône 'Imprimer' ou 'Enregistrer'.")
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -497,7 +498,7 @@ with main_tabs[0]:
                     st.success("Logo chargé !")
                 st.info("Ces informations apparaitront sur tous les exports PDF.")
             
-            st.subheader("💾 Sauvegarde / Chargement Projet")
+            st.subheader("💾 Sauvegarde / Chargement Projet (Local)")
             with st.container(border=True):
                 data_to_save = {
                     "planning": st.session_state.planning,
@@ -517,27 +518,55 @@ with main_tabs[0]:
                     "contacts_artistes": st.session_state.contacts_artistes
                 }
                 
-                pickle_out = pickle.dumps(data_to_save)
-                
                 col_s1, col_s2 = st.columns(2)
                 
                 with col_s1:
                     st.markdown("**1. Sauvegarder**")
-                    st.download_button(
-                        label="💾 Save Project As... (.pkl)", 
-                        data=pickle_out, 
-                        file_name=f"backup_festival_{datetime.date.today()}.pkl", 
-                        use_container_width=True
-                    )
-                    st.caption("💡 *Astuce : Pour choisir le dossier, activez 'Toujours demander où enregistrer' dans les paramètres de votre navigateur.*")
+                    if st.button("💾 Save Project As...", use_container_width=True):
+                        try:
+                            import tkinter as tk
+                            from tkinter import filedialog
+                            
+                            root = tk.Tk()
+                            root.withdraw()
+                            root.wm_attributes('-topmost', 1)
+                            file_path = filedialog.asksaveasfilename(
+                                defaultextension=".pkl", 
+                                filetypes=[("Pickle files", "*.pkl")], 
+                                title="Sauvegarder le projet sous...",
+                                initialfile=f"backup_festival_{datetime.date.today()}.pkl"
+                            )
+                            root.destroy()
+                            
+                            if file_path:
+                                with open(file_path, "wb") as f:
+                                    pickle.dump(data_to_save, f)
+                                st.success(f"✅ Projet sauvegardé dans : {file_path}")
+                            else:
+                                st.warning("Sauvegarde annulée.")
+                        except Exception as e:
+                            st.error(f"Erreur d'écriture ou Tkinter non disponible : {e}")
 
                 with col_s2:
                     st.markdown("**2. Charger**")
-                    uploaded_session = st.file_uploader("📂 Load Project", type=['pkl'], label_visibility="collapsed")
-                    if uploaded_session:
-                        if st.button("Restaurer le projet", use_container_width=True):
-                            try:
-                                data_loaded = pickle.loads(uploaded_session.read())
+                    if st.button("📂 Load Project", use_container_width=True):
+                        try:
+                            import tkinter as tk
+                            from tkinter import filedialog
+                            
+                            root = tk.Tk()
+                            root.withdraw()
+                            root.wm_attributes('-topmost', 1)
+                            file_path = filedialog.askopenfilename(
+                                filetypes=[("Pickle files", "*.pkl")], 
+                                title="Charger un projet"
+                            )
+                            root.destroy()
+                            
+                            if file_path:
+                                with open(file_path, "rb") as f:
+                                    data_loaded = pickle.load(f)
+                                
                                 st.session_state.planning = data_loaded["planning"]
                                 st.session_state.fiches_tech = data_loaded["fiches_tech"]
                                 st.session_state.riders_stockage = data_loaded["riders_stockage"]
@@ -555,8 +584,10 @@ with main_tabs[0]:
                                 st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
                                 st.success("Session restaurée avec succès !")
                                 st.rerun()
-                            except Exception as e:
-                                st.error(f"Erreur lors du chargement : {e}")
+                            else:
+                                st.warning("Chargement annulé.")
+                        except Exception as e:
+                            st.error(f"Erreur lors du chargement : {e}")
 
         with col_adm2:
             st.subheader("📚 Catalogue Matériel (Excel)")
@@ -626,7 +657,7 @@ with main_tabs[0]:
                 s_j_p = st.selectbox("Jour", l_jours) if m_plan == "Par Jour & Scène" else None
                 s_s_p = st.selectbox("Scène", l_scenes) if m_plan == "Par Jour & Scène" else None
                 
-                if st.button("Générer Aperçu PDF Planning", use_container_width=True):
+                if st.button("Générer PDF Planning", use_container_width=True):
                     df_p = st.session_state.planning.copy()
                     
                     if m_plan == "Par Jour & Scène" and MATPLOTLIB_AVAILABLE:
@@ -634,7 +665,7 @@ with main_tabs[0]:
                         titre = f"Planning Vertical {s_s_p} - {s_j_p}"
                         pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
                         if pdf_bytes:
-                            afficher_preview_pdf(pdf_bytes)
+                            afficher_preview_pdf(pdf_bytes, f"planning_visuel_{s_j_p}.pdf")
                         else:
                             st.warning("Aucune donnée pour générer le graphique.")
                     else:
@@ -653,7 +684,7 @@ with main_tabs[0]:
                         fmt = 'A3' if m_plan == "Global" else 'A4'
                         
                         pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
-                        afficher_preview_pdf(pdf_bytes)
+                        afficher_preview_pdf(pdf_bytes, "planning.pdf")
 
         with cex2:
             st.subheader("📦 Export Besoins")
@@ -670,7 +701,7 @@ with main_tabs[0]:
                 col_btn_pdf, col_btn_ej = st.columns(2)
                 
                 with col_btn_pdf:
-                    if st.button("Générer Aperçu PDF Besoins", use_container_width=True):
+                    if st.button("Générer PDF Besoins", use_container_width=True):
                         df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
                         if sel_grp_exp != "Tous": df_base = df_base[df_base["Groupe"] == sel_grp_exp]
                          
@@ -784,7 +815,7 @@ with main_tabs[0]:
                             dico_besoins["--- REPERTOIRE CONTACTS ARTISTES ---"] = "\n\n".join(contact_texts)
 
                         pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
-                        afficher_preview_pdf(pdf_bytes_b)
+                        afficher_preview_pdf(pdf_bytes_b, "besoins.pdf")
 
                 with col_btn_ej:
                     if st.button("Export Easyjob", use_container_width=True):
@@ -863,7 +894,7 @@ with main_tabs[0]:
                         s_m_patch = st.radio("Format IN", ["12N", "20H"], horizontal=True)
                     cb_patch_out = st.checkbox("PATCH OUT", value=False)
 
-                if st.button("Générer Aperçu PDF Patch(s)", use_container_width=True):
+                if st.button("Générer PDF Patch(s)", use_container_width=True):
                     dico_patch = {}
                     note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
                     if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
@@ -906,7 +937,7 @@ with main_tabs[0]:
                     if has_data or "--- CONFIGURATION CIRCUITS ---" in dico_patch:
                         titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
                         pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
-                        afficher_preview_pdf(pdf_bytes_p)
+                        afficher_preview_pdf(pdf_bytes_p, f"patch_{s_a_patch}.pdf")
                     else:
                         st.error("Aucune donnée de patch sélectionnée ou disponible à exporter.")
 
