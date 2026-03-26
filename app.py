@@ -134,7 +134,6 @@ def get_migrated_contacts(contact_data, default_roles_map):
 def afficher_preview_pdf(pdf_bytes, filename="document.pdf"):
     st.success("✅ Aperçu généré avec succès !")
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    # Utilisation d'un iframe robuste pour afficher le PDF sans pop-up block
     pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}#toolbar=1" width="100%" height="850px" style="border: 1px solid #ccc; border-radius: 5px;" type="application/pdf"></iframe>'
     st.markdown(pdf_display, unsafe_allow_html=True)
     st.info("💡 Vous pouvez enregistrer ou imprimer le fichier en utilisant les icônes de la barre d'outils grise affichée en haut du PDF ci-dessus.")
@@ -296,18 +295,8 @@ class FestivalPDF(FPDF):
         self.ln(5)
 
 
-# --- NOUVELLE CLASSE EXCLUSIVE POUR L'EXPORT "BESOINS" ---
+# --- NOUVELLE CLASSE EXCLUSIVE POUR L'EXPORT "BESOINS" (SANS POLICE EXTERNE) ---
 class BesoinsPDF(FPDF):
-    def set_custom_font(self, family, style='', size=10):
-        # Filet de sécurité si la police BlairITC.ttf n'est pas trouvée
-        if family.lower() == 'blairitc':
-            try:
-                self.set_font('BlairITC', style, size)
-            except:
-                self.set_font('helvetica', style, size)
-        else:
-            self.set_font(family, style, size)
-
     def header(self):
         # 1. Image du festival en haut a gauche
         if st.session_state.festival_logo:
@@ -322,15 +311,15 @@ class BesoinsPDF(FPDF):
             except: pass
 
         # 2. Nom du festival + date de génération centrée
-        self.set_custom_font("helvetica", "B", 15)
+        self.set_font("helvetica", "B", 15)
         self.cell(0, 6, st.session_state.festival_name.upper(), ln=1, align='C')
-        self.set_custom_font("helvetica", "I", 10)
+        self.set_font("helvetica", "I", 10)
         self.cell(0, 6, f"Généré le {datetime.datetime.now().strftime('%d/%m/%Y à %H:%M')}", ln=1, align='C')
         self.ln(10)
 
     def dessiner_tableau(self, df):
         if df is None or df.empty: return
-        self.set_custom_font("helvetica", "B", 9)
+        self.set_font("helvetica", "B", 9)
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
@@ -343,7 +332,7 @@ class BesoinsPDF(FPDF):
             self.cell(col_width, 8, str(col), border=1, fill=True, align='C')
         self.ln()
         
-        self.set_custom_font("helvetica", "", 8)
+        self.set_font("helvetica", "", 8)
         for _, row in df.iterrows():
             if self.get_y() > (self.h - 20): self.add_page()
             for item in row:
@@ -354,83 +343,75 @@ class BesoinsPDF(FPDF):
 
 def generer_pdf_besoins_custom(titre_doc, arts_infos, besoins_cats):
     pdf = BesoinsPDF(orientation='P', unit='mm', format='A4')
-    
-    # Chargement de la police BlairITC.ttf si elle est dans le dossier
-    try:
-        pdf.add_font('BlairITC', '', 'BlairITC.ttf', uni=True)
-        pdf.add_font('BlairITC', 'B', 'BlairITC.ttf', uni=True) 
-    except:
-        pass # Utilisation de Helvetica en plan B
-
     pdf.add_page()
     
-    # 3. BESOINS (Nom STAGE + période) avec police BlairITC TT, centré avec trait 
+    # 3. BESOINS (Nom STAGE + période) centré avec trait 
     pdf.ln(5)
     pdf.set_draw_color(0, 0, 0)
     pdf.set_line_width(0.5)
     pdf.line(10, pdf.get_y(), pdf.w - 10, pdf.get_y())
     pdf.ln(4)
-    pdf.set_custom_font("BlairITC", "B", 16)
+    pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, titre_doc.upper(), ln=1, align='C')
     pdf.ln(1)
     pdf.line(10, pdf.get_y(), pdf.w - 10, pdf.get_y())
     pdf.ln(10)
 
-    # 4. INFORMATION TECHNIQUE avec police BlairITC TT
-    pdf.set_custom_font("BlairITC", "B", 14)
+    # 4. INFORMATION TECHNIQUE 
+    pdf.set_font("helvetica", "B", 14)
     pdf.cell(0, 10, "INFORMATION TECHNIQUE", ln=1, align='L')
     pdf.ln(3)
 
     for art, info in arts_infos.items():
         if pdf.get_y() > (pdf.h - 40): pdf.add_page()
 
-        # 4-X Groupe X (avec police BlairITC) dans un cadre avec un fond de couleur pale
-        pdf.set_custom_font("BlairITC", "B", 12)
+        # 4-X Groupe X dans un cadre avec un fond de couleur pale
+        pdf.set_font("helvetica", "B", 12)
         pdf.set_fill_color(240, 248, 255) # Couleur pale (AliceBlue)
         pdf.cell(0, 10, str(art), ln=1, align='C', fill=True, border=1)
         pdf.ln(3)
 
         # 4-X-1 Contact
         if info.get("Contacts"):
-            pdf.set_custom_font("helvetica", "B", 10)
+            pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Contacts :", ln=1)
-            pdf.set_custom_font("helvetica", "", 9)
+            pdf.set_font("helvetica", "", 9)
             val = str(info["Contacts"]).encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 5, val)
             pdf.ln(2)
 
         # 4-X-2 Configuration circuits
         if info.get("Circuits") is not None and not info["Circuits"].empty:
-            pdf.set_custom_font("helvetica", "B", 10)
+            pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Configuration circuits :", ln=1)
             pdf.dessiner_tableau(info["Circuits"])
 
-        # Alimentation (Bonus utile)
+        # Alimentation 
         if info.get("Alim") is not None and not info["Alim"].empty:
-            pdf.set_custom_font("helvetica", "B", 10)
+            pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Alimentation électrique :", ln=1)
             pdf.dessiner_tableau(info["Alim"])
 
         # 4-X-3 Informations complémentaire
         if info.get("Notes"):
-            pdf.set_custom_font("helvetica", "B", 10)
+            pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Informations complémentaires :", ln=1)
-            pdf.set_custom_font("helvetica", "", 9)
+            pdf.set_font("helvetica", "", 9)
             val = str(info["Notes"]).encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 5, val)
             pdf.ln(2)
 
         pdf.ln(5)
 
-    # 5. BESOINS TECHNIQUE avec police BlairITC TT
+    # 5. BESOINS TECHNIQUE 
     if pdf.get_y() > (pdf.h - 30): pdf.add_page()
-    pdf.set_custom_font("BlairITC", "B", 14)
+    pdf.set_font("helvetica", "B", 14)
     pdf.cell(0, 10, "BESOINS TECHNIQUE", ln=1, align='L')
     pdf.ln(3)
 
     for cat, df_cat in besoins_cats.items():
         if pdf.get_y() > (pdf.h - 30): pdf.add_page()
-        pdf.set_custom_font("helvetica", "B", 11)
+        pdf.set_font("helvetica", "B", 11)
         pdf.set_fill_color(230, 230, 230)
         pdf.cell(0, 8, f"CATÉGORIE : {cat}", ln=1, fill=True)
         pdf.dessiner_tableau(df_cat)
@@ -642,7 +623,7 @@ with main_tabs[0]:
                     st.success("Logo chargé !")
                 st.info("Ces informations apparaitront sur tous les exports PDF.")
             
-            st.subheader("💾 Sauvegarde / Chargement Projet (Local)")
+            st.subheader("💾 Sauvegarde / Chargement Projet (Cloud & Web)")
             with st.container(border=True):
                 data_to_save = {
                     "planning": st.session_state.planning,
@@ -666,50 +647,22 @@ with main_tabs[0]:
                 
                 with col_s1:
                     st.markdown("**1. Sauvegarder**")
-                    if st.button("💾 Save Project As...", use_container_width=True):
-                        try:
-                            import tkinter as tk
-                            from tkinter import filedialog
-                            
-                            root = tk.Tk()
-                            root.withdraw()
-                            root.wm_attributes('-topmost', 1)
-                            file_path = filedialog.asksaveasfilename(
-                                defaultextension=".pkl", 
-                                filetypes=[("Pickle files", "*.pkl")], 
-                                title="Sauvegarder le projet sous...",
-                                initialfile=f"backup_festival_{datetime.date.today()}.pkl"
-                            )
-                            root.destroy()
-                            
-                            if file_path:
-                                with open(file_path, "wb") as f:
-                                    pickle.dump(data_to_save, f)
-                                st.success(f"✅ Projet sauvegardé dans : {file_path}")
-                            else:
-                                st.warning("Sauvegarde annulée.")
-                        except Exception as e:
-                            st.error(f"Erreur d'écriture ou Tkinter non disponible : {e}")
+                    pickle_out = pickle.dumps(data_to_save)
+                    st.download_button(
+                        label="💾 Télécharger le projet (.pkl)", 
+                        data=pickle_out, 
+                        file_name=f"backup_festival_{datetime.date.today()}.pkl", 
+                        use_container_width=True
+                    )
+                    st.caption("💡 Votre navigateur téléchargera le fichier (Configurez-le pour demander où enregistrer).")
 
                 with col_s2:
                     st.markdown("**2. Charger**")
-                    if st.button("📂 Load Project", use_container_width=True):
-                        try:
-                            import tkinter as tk
-                            from tkinter import filedialog
-                            
-                            root = tk.Tk()
-                            root.withdraw()
-                            root.wm_attributes('-topmost', 1)
-                            file_path = filedialog.askopenfilename(
-                                filetypes=[("Pickle files", "*.pkl")], 
-                                title="Charger un projet"
-                            )
-                            root.destroy()
-                            
-                            if file_path:
-                                with open(file_path, "rb") as f:
-                                    data_loaded = pickle.load(f)
+                    uploaded_session = st.file_uploader("📂 Uploader un projet (.pkl)", type=['pkl'], label_visibility="collapsed")
+                    if uploaded_session:
+                        if st.button("Restaurer le projet", use_container_width=True):
+                            try:
+                                data_loaded = pickle.loads(uploaded_session.read())
                                 
                                 st.session_state.planning = data_loaded["planning"]
                                 st.session_state.fiches_tech = data_loaded["fiches_tech"]
@@ -728,10 +681,8 @@ with main_tabs[0]:
                                 st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
                                 st.success("Session restaurée avec succès !")
                                 st.rerun()
-                            else:
-                                st.warning("Chargement annulé.")
-                        except Exception as e:
-                            st.error(f"Erreur lors du chargement : {e}")
+                            except Exception as e:
+                                st.error(f"Erreur lors du chargement : {e}")
 
         with col_adm2:
             st.subheader("📚 Catalogue Matériel (Excel)")
