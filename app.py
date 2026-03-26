@@ -130,13 +130,6 @@ def get_migrated_contacts(contact_data, default_roles_map):
                 })
     return pd.DataFrame(records, columns=["Rôle", "Nom", "Prénom", "Tel", "Mail", "Canal Talkie"])
 
-# --- FONCTION TECHNIQUE POUR LE LECTEUR PDF INTÉGRÉ ---
-def afficher_preview_pdf(pdf_bytes, filename="document.pdf"):
-    st.success("✅ Aperçu généré avec succès !")
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}#toolbar=1" width="100%" height="850px" style="border: 1px solid #ccc; border-radius: 5px;" type="application/pdf"></iframe>'
-    st.markdown(pdf_display, unsafe_allow_html=True)
-    st.info("💡 Vous pouvez enregistrer ou imprimer le fichier en utilisant les icônes de la barre d'outils grise affichée en haut du PDF ci-dessus.")
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF STANDARD (PLANNING / PATCH) ---
 class FestivalPDF(FPDF):
@@ -295,7 +288,7 @@ class FestivalPDF(FPDF):
         self.ln(5)
 
 
-# --- NOUVELLE CLASSE EXCLUSIVE POUR L'EXPORT "BESOINS" (SANS POLICE EXTERNE) ---
+# --- NOUVELLE CLASSE EXCLUSIVE POUR L'EXPORT "BESOINS" (Mise en page demandée) ---
 class BesoinsPDF(FPDF):
     def header(self):
         # 1. Image du festival en haut a gauche
@@ -752,34 +745,33 @@ with main_tabs[0]:
                 s_j_p = st.selectbox("Jour", l_jours) if m_plan == "Par Jour & Scène" else None
                 s_s_p = st.selectbox("Scène", l_scenes) if m_plan == "Par Jour & Scène" else None
                 
-                if st.button("Générer Aperçu PDF Planning", use_container_width=True):
+                if m_plan == "Par Jour & Scène" and MATPLOTLIB_AVAILABLE:
                     df_p = st.session_state.planning.copy()
-                    
-                    if m_plan == "Par Jour & Scène" and MATPLOTLIB_AVAILABLE:
-                        sub_df = df_p[(df_p["Jour"].astype(str) == str(s_j_p)) & (df_p["Scène"].astype(str) == str(s_s_p))]
-                        titre = f"Planning Vertical {s_s_p} - {s_j_p}"
-                        pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
-                        if pdf_bytes:
-                            afficher_preview_pdf(pdf_bytes, f"planning_visuel_{s_j_p}.pdf")
-                        else:
-                            st.warning("Aucune donnée pour générer le graphique.")
+                    sub_df = df_p[(df_p["Jour"].astype(str) == str(s_j_p)) & (df_p["Scène"].astype(str) == str(s_s_p))]
+                    titre = f"Planning Vertical {s_s_p} - {s_j_p}"
+                    pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
+                    if pdf_bytes:
+                        st.download_button("📥 Télécharger PDF Planning Visuel", pdf_bytes, f"planning_visuel_{s_j_p}.pdf", "application/pdf", use_container_width=True)
                     else:
-                        dico_sections = {}
-                        jours_a_traiter = [s_j_p] if m_plan == "Par Jour & Scène" else l_jours
-                        scenes_a_traiter = [s_s_p] if m_plan == "Par Jour & Scène" else l_scenes
-                        
-                        for j in jours_a_traiter:
-                            for s in scenes_a_traiter:
-                                sub_df = df_p[(df_p["Jour"].astype(str) == str(j)) & (df_p["Scène"].astype(str) == str(s))]
-                                df_grid = build_planning_grid(sub_df)
-                                if not df_grid.empty:
-                                    dico_sections[f"JOUR : {j} | SCENE : {s}"] = df_grid
-                        
-                        orient = 'L' if m_plan == "Global" else 'P'
-                        fmt = 'A3' if m_plan == "Global" else 'A4'
-                        
-                        pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
-                        afficher_preview_pdf(pdf_bytes, "planning.pdf")
+                        st.warning("Aucune donnée pour générer le graphique.")
+                else:
+                    df_p = st.session_state.planning.copy()
+                    dico_sections = {}
+                    jours_a_traiter = [s_j_p] if m_plan == "Par Jour & Scène" else l_jours
+                    scenes_a_traiter = [s_s_p] if m_plan == "Par Jour & Scène" else l_scenes
+                    
+                    for j in jours_a_traiter:
+                        for s in scenes_a_traiter:
+                            sub_df = df_p[(df_p["Jour"].astype(str) == str(j)) & (df_p["Scène"].astype(str) == str(s))]
+                            df_grid = build_planning_grid(sub_df)
+                            if not df_grid.empty:
+                                dico_sections[f"JOUR : {j} | SCENE : {s}"] = df_grid
+                    
+                    orient = 'L' if m_plan == "Global" else 'P'
+                    fmt = 'A3' if m_plan == "Global" else 'A4'
+                    
+                    pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
+                    st.download_button("📥 Télécharger PDF Planning (Tableau)", pdf_bytes, "planning.pdf", "application/pdf", use_container_width=True)
 
         with cex2:
             st.subheader("📦 Export Besoins")
@@ -796,123 +788,122 @@ with main_tabs[0]:
                 col_btn_pdf, col_btn_ej = st.columns(2)
                 
                 with col_btn_pdf:
-                    if st.button("Générer Aperçu PDF Besoins", use_container_width=True):
-                        df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
-                        if sel_grp_exp != "Tous": df_base = df_base[df_base["Groupe"] == sel_grp_exp]
-                         
-                        titre_besoin = f"BESOINS ({s_s_m} - {s_j_m if m_bes == 'Par Jour & Scène' else 'Période Totale'})"
-                        if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
+                    df_base = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == False)]
+                    if sel_grp_exp != "Tous": df_base = df_base[df_base["Groupe"] == sel_grp_exp]
+                        
+                    titre_besoin = f"BESOINS ({s_s_m} - {s_j_m if m_bes == 'Par Jour & Scène' else 'Période Totale'})"
+                    if sel_grp_exp != "Tous": titre_besoin += f" - {sel_grp_exp}"
 
-                        # 1. PRÉPARATION DES INFOS TECHNIQUES (Par Artiste)
-                        if m_bes == "Par Jour & Scène": 
-                            arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
-                        else:
-                            plan_scene = st.session_state.planning[st.session_state.planning["Scène"].astype(str) == str(s_s_m)]
-                            arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
+                    # 1. PRÉPARATION DES INFOS TECHNIQUES (Par Artiste)
+                    if m_bes == "Par Jour & Scène": 
+                        arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
+                    else:
+                        plan_scene = st.session_state.planning[st.session_state.planning["Scène"].astype(str) == str(s_s_m)]
+                        arts_scope = plan_scene["Artiste"].unique() if sel_grp_exp == "Tous" else [sel_grp_exp]
 
-                        arts_infos = {}
-                        roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
+                    arts_infos = {}
+                    roles_art_map = {"RG": "Régie générale", "RT": "Régie technique", "FOH": "Regie SON FOH", "MON": "Regie SON MON", "LUM": "Regie LUM", "VID": "Regie VIDEO"}
 
-                        for a in arts_scope:
-                            arts_infos[a] = {}
-                            
-                            # Contacts
-                            c_df = get_migrated_contacts(st.session_state.contacts_artistes.get(a), roles_art_map)
-                            contacts_text = ""
-                            if not c_df.empty:
-                                lines = []
-                                for _, row in c_df.iterrows():
-                                    role = str(row.get("Rôle", "")).strip()
-                                    nom = str(row.get("Nom", "")).strip()
-                                    prenom = str(row.get("Prénom", "")).strip()
-                                    tel = str(row.get("Tel", "")).strip()
-                                    mail = str(row.get("Mail", "")).strip()
-                                    talkie = str(row.get("Canal Talkie", "")).strip()
-                                    
-                                    if nom or prenom or tel or mail or talkie:
-                                        parts = []
-                                        if prenom or nom: parts.append(f"{prenom} {nom}".strip())
-                                        if tel: parts.append(tel)
-                                        if mail: parts.append(mail)
-                                        if talkie: parts.append(f"Talkie: {talkie}")
-                                        lines.append(f"{role} : " + " - ".join(parts))
-                                contacts_text = "\n".join(lines)
-                            arts_infos[a]["Contacts"] = contacts_text
-
-                            # Circuits
-                            if a in st.session_state.artist_circuits:
-                                c = st.session_state.artist_circuits[a]
-                                q_in, q_ear, q_ms, q_mm = c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)
-                                q_sides = c.get("sides_monitors", False)
+                    for a in arts_scope:
+                        arts_infos[a] = {}
+                        
+                        # Contacts
+                        c_df = get_migrated_contacts(st.session_state.contacts_artistes.get(a), roles_art_map)
+                        contacts_text = ""
+                        if not c_df.empty:
+                            lines = []
+                            for _, row in c_df.iterrows():
+                                role = str(row.get("Rôle", "")).strip()
+                                nom = str(row.get("Nom", "")).strip()
+                                prenom = str(row.get("Prénom", "")).strip()
+                                tel = str(row.get("Tel", "")).strip()
+                                mail = str(row.get("Mail", "")).strip()
+                                talkie = str(row.get("Canal Talkie", "")).strip()
                                 
-                                df_circuits = pd.DataFrame({
-                                    "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
-                                    "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
-                                })
-                                arts_infos[a]["Circuits"] = df_circuits
-                            else:
-                                arts_infos[a]["Circuits"] = None
+                                if nom or prenom or tel or mail or talkie:
+                                    parts = []
+                                    if prenom or nom: parts.append(f"{prenom} {nom}".strip())
+                                    if tel: parts.append(tel)
+                                    if mail: parts.append(mail)
+                                    if talkie: parts.append(f"Talkie: {talkie}")
+                                    lines.append(f"{role} : " + " - ".join(parts))
+                            contacts_text = "\n".join(lines)
+                        arts_infos[a]["Contacts"] = contacts_text
 
-                            # Alimentation
-                            df_alim_besoin = st.session_state.alim_elec[
-                                (st.session_state.alim_elec["Groupe"] == a) & 
-                                (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_m))
-                            ]
-                            if m_bes == "Par Jour & Scène":
-                                df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"].astype(str) == str(s_j_m)]
-                            arts_infos[a]["Alim"] = df_alim_besoin[["Format", "Métier", "Emplacement"]] if not df_alim_besoin.empty else None
-
-                            # Notes
-                            arts_infos[a]["Notes"] = st.session_state.notes_artistes.get(a, "").strip()
-
-
-                        # 2. PRÉPARATION DES BESOINS MATÉRIELS (Par Catégorie)
-                        def calcul_pic(df_input, jour, scene):
-                            if sel_grp_exp != "Tous":
-                                plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene)) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
-                            else:
-                                plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene))]
-                            arts = plan["Artiste"].tolist()
-                            if not arts or df_input.empty: return pd.DataFrame()
-                            mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
-                            for a in arts: 
-                                if a not in mat.columns: mat[a] = 0
-                            res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
-                            df_res = res.reset_index()
-                            df_res.columns = list(df_res.columns[:-1]) + ["Total"]
-                            return df_res
-
-                        besoins_cats = {}
-                        if m_bes == "Par Jour & Scène":
-                            data_pic = calcul_pic(df_base[df_base["Jour"].astype(str) == str(s_j_m)], s_j_m, s_s_m)
-                            if not data_pic.empty:
-                                for cat in data_pic["Catégorie"].unique():
-                                    cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
-                                    besoins_cats[cat] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
+                        # Circuits
+                        if a in st.session_state.artist_circuits:
+                            c = st.session_state.artist_circuits[a]
+                            q_in, q_ear, q_ms, q_mm = c.get("inputs", 0), c.get("ear_stereo", 0), c.get("mon_stereo", 0), c.get("mon_mono", 0)
+                            q_sides = c.get("sides_monitors", False)
+                            
+                            df_circuits = pd.DataFrame({
+                                "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
+                                "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
+                            })
+                            arts_infos[a]["Circuits"] = df_circuits
                         else:
-                            all_days_res = []
-                            for j in df_base["Jour"].unique():
-                                res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
-                                if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
-                            if all_days_res:
-                                final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
-                                for cat in final["Catégorie"].unique():
-                                    cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
-                                    besoins_cats[cat] = final[final["Catégorie"] == cat][cols_dispo_glob]
+                            arts_infos[a]["Circuits"] = None
 
-                        # Apports artistes
-                        df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
-                        if m_bes == "Par Jour & Scène": df_apporte = df_apporte[df_apporte["Jour"].astype(str) == str(s_j_m)]
-                        if sel_grp_exp != "Tous": df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
-                        artistes_apporte = df_apporte["Groupe"].unique()
-                        for art in artistes_apporte:
-                            items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
-                            if not items_art.empty:
-                                besoins_cats[f"FOURNI PAR L'ARTISTE : {art}"] = items_art
+                        # Alimentation
+                        df_alim_besoin = st.session_state.alim_elec[
+                            (st.session_state.alim_elec["Groupe"] == a) & 
+                            (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_m))
+                        ]
+                        if m_bes == "Par Jour & Scène":
+                            df_alim_besoin = df_alim_besoin[df_alim_besoin["Jour"].astype(str) == str(s_j_m)]
+                        arts_infos[a]["Alim"] = df_alim_besoin[["Format", "Métier", "Emplacement"]] if not df_alim_besoin.empty else None
 
-                        # 3. GÉNÉRATION
-                        pdf_bytes_b = generer_pdf_besoins_custom(titre_besoin, arts_infos, besoins_cats)
-                        afficher_preview_pdf(pdf_bytes_b, "besoins.pdf")
+                        # Notes
+                        arts_infos[a]["Notes"] = st.session_state.notes_artistes.get(a, "").strip()
+
+
+                    # 2. PRÉPARATION DES BESOINS MATÉRIELS (Par Catégorie)
+                    def calcul_pic(df_input, jour, scene):
+                        if sel_grp_exp != "Tous":
+                            plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene)) & (st.session_state.planning["Artiste"] == sel_grp_exp)]
+                        else:
+                            plan = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(jour)) & (st.session_state.planning["Scène"].astype(str) == str(scene))]
+                        arts = plan["Artiste"].tolist()
+                        if not arts or df_input.empty: return pd.DataFrame()
+                        mat = df_input.groupby(["Catégorie", "Marque", "Modèle", "Groupe"])["Quantité"].sum().unstack(fill_value=0)
+                        for a in arts: 
+                            if a not in mat.columns: mat[a] = 0
+                        res = pd.concat([mat[arts].iloc[:, i] + mat[arts].iloc[:, i+1] for i in range(len(arts)-1)], axis=1).max(axis=1) if len(arts) > 1 else mat[arts].iloc[:, 0]
+                        df_res = res.reset_index()
+                        df_res.columns = list(df_res.columns[:-1]) + ["Total"]
+                        return df_res
+
+                    besoins_cats = {}
+                    if m_bes == "Par Jour & Scène":
+                        data_pic = calcul_pic(df_base[df_base["Jour"].astype(str) == str(s_j_m)], s_j_m, s_s_m)
+                        if not data_pic.empty:
+                            for cat in data_pic["Catégorie"].unique():
+                                cols_dispo = [c for c in ["Marque", "Modèle", "Total"] if c in data_pic.columns]
+                                besoins_cats[cat] = data_pic[data_pic["Catégorie"] == cat][cols_dispo]
+                    else:
+                        all_days_res = []
+                        for j in df_base["Jour"].unique():
+                            res_j = calcul_pic(df_base[df_base["Jour"] == j], j, s_s_m)
+                            if not res_j.empty: all_days_res.append(res_j.set_index(["Catégorie", "Marque", "Modèle"]))
+                        if all_days_res:
+                            final = pd.concat(all_days_res, axis=1).max(axis=1).reset_index().rename(columns={0: "Max_Periode"})
+                            for cat in final["Catégorie"].unique():
+                                cols_dispo_glob = [c for c in ["Marque", "Modèle", "Max_Periode"] if c in final.columns]
+                                besoins_cats[cat] = final[final["Catégorie"] == cat][cols_dispo_glob]
+
+                    # Apports artistes
+                    df_apporte = st.session_state.fiches_tech[(st.session_state.fiches_tech["Scène"].astype(str) == str(s_s_m)) & (st.session_state.fiches_tech["Artiste_Apporte"] == True)]
+                    if m_bes == "Par Jour & Scène": df_apporte = df_apporte[df_apporte["Jour"].astype(str) == str(s_j_m)]
+                    if sel_grp_exp != "Tous": df_apporte = df_apporte[df_apporte["Groupe"] == sel_grp_exp]
+                    artistes_apporte = df_apporte["Groupe"].unique()
+                    for art in artistes_apporte:
+                        items_art = df_apporte[df_apporte["Groupe"] == art][["Catégorie", "Marque", "Modèle", "Quantité"]]
+                        if not items_art.empty:
+                            besoins_cats[f"FOURNI PAR L'ARTISTE : {art}"] = items_art
+
+                    # 3. GÉNÉRATION
+                    pdf_bytes_b = generer_pdf_besoins_custom(titre_besoin, arts_infos, besoins_cats)
+                    st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf", use_container_width=True)
 
                 with col_btn_ej:
                     if st.button("Export Easyjob", use_container_width=True):
@@ -991,52 +982,51 @@ with main_tabs[0]:
                         s_m_patch = st.radio("Format IN", ["12N", "20H"], horizontal=True)
                     cb_patch_out = st.checkbox("PATCH OUT", value=False)
 
-                if st.button("Générer Aperçu PDF Patch(s)", use_container_width=True):
-                    dico_patch = {}
-                    note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
-                    if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
+                dico_patch = {}
+                note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
+                if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
+                
+                if s_a_patch in st.session_state.artist_circuits:
+                    c_patch = st.session_state.artist_circuits[s_a_patch]
+                    q_in, q_ear, q_ms, q_mm = c_patch.get("inputs", 0), c_patch.get("ear_stereo", 0), c_patch.get("mon_stereo", 0), c_patch.get("mon_mono", 0)
+                    q_sides = c_patch.get("sides_monitors", False)
                     
-                    if s_a_patch in st.session_state.artist_circuits:
-                        c_patch = st.session_state.artist_circuits[s_a_patch]
-                        q_in, q_ear, q_ms, q_mm = c_patch.get("inputs", 0), c_patch.get("ear_stereo", 0), c_patch.get("mon_stereo", 0), c_patch.get("mon_mono", 0)
-                        q_sides = c_patch.get("sides_monitors", False)
-                        
-                        df_circuits_patch = pd.DataFrame({
-                            "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
-                            "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
-                        })
-                        dico_patch["--- CONFIGURATION CIRCUITS ---"] = df_circuits_patch
-                    
-                    df_alim_patch = st.session_state.alim_elec[
-                        (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
-                        (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_patch)) & 
-                        (st.session_state.alim_elec["Jour"].astype(str) == str(s_j_patch))
-                    ][["Format", "Métier", "Emplacement"]]
-                    
-                    if not df_alim_patch.empty: dico_patch["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_patch
-                    
-                    has_data = False
-                    
-                    if cb_patch_in and s_m_patch:
-                        if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
-                            dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
-                            has_data = True
-                        else:
-                            st.warning(f"⚠️ Aucun Patch IN {s_m_patch} trouvé pour {s_a_patch}.")
-
-                    if cb_patch_out:
-                        if s_a_patch in st.session_state.patches_out and st.session_state.patches_out[s_a_patch] is not None:
-                            dico_patch["--- PATCH OUT ---"] = st.session_state.patches_out[s_a_patch]
-                            has_data = True
-                        else:
-                            st.warning(f"⚠️ Aucun Patch OUT trouvé pour {s_a_patch}.")
-
-                    if has_data or "--- CONFIGURATION CIRCUITS ---" in dico_patch:
-                        titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
-                        pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
-                        afficher_preview_pdf(pdf_bytes_p, f"patch_{s_a_patch}.pdf")
+                    df_circuits_patch = pd.DataFrame({
+                        "Type de Circuit": ["Circuits d'entrées", "EAR MONITOR // Circuits stéréo", "MONITOR // circuits stéréo", "MONITOR // circuits mono", "SIDES MONITORS"],
+                        "Quantité / Statut": [q_in, q_ear, q_ms, q_mm, "OUI" if q_sides else "NON"]
+                    })
+                    dico_patch["--- CONFIGURATION CIRCUITS ---"] = df_circuits_patch
+                
+                df_alim_patch = st.session_state.alim_elec[
+                    (st.session_state.alim_elec["Groupe"] == s_a_patch) & 
+                    (st.session_state.alim_elec["Scène"].astype(str) == str(s_s_patch)) & 
+                    (st.session_state.alim_elec["Jour"].astype(str) == str(s_j_patch))
+                ][["Format", "Métier", "Emplacement"]]
+                
+                if not df_alim_patch.empty: dico_patch["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_patch
+                
+                has_data = False
+                
+                if cb_patch_in and s_m_patch:
+                    if s_a_patch in st.session_state.patches_io and st.session_state.patches_io[s_a_patch].get(s_m_patch) is not None:
+                        dico_patch.update(st.session_state.patches_io[s_a_patch][s_m_patch])
+                        has_data = True
                     else:
-                        st.error("Aucune donnée de patch sélectionnée ou disponible à exporter.")
+                        st.warning(f"⚠️ Aucun Patch IN {s_m_patch} trouvé pour {s_a_patch}.")
+
+                if cb_patch_out:
+                    if s_a_patch in st.session_state.patches_out and st.session_state.patches_out[s_a_patch] is not None:
+                        dico_patch["--- PATCH OUT ---"] = st.session_state.patches_out[s_a_patch]
+                        has_data = True
+                    else:
+                        st.warning(f"⚠️ Aucun Patch OUT trouvé pour {s_a_patch}.")
+
+                if has_data or "--- CONFIGURATION CIRCUITS ---" in dico_patch:
+                    titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
+                    pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
+                    st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
+                else:
+                    st.error("Aucune donnée de patch sélectionnée ou disponible à exporter.")
 
 # ==========================================
 # ONGLET 2 : GESTION FESTIVAL
@@ -1341,9 +1331,13 @@ with main_tabs[2]:
                         sel_file = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe, key=f"view_{sel_a}")
                         if sel_file != "-- Choisir un fichier --":
                             pdf_data = st.session_state.riders_stockage[sel_a][sel_file]
-                            b64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                            pdf_link = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{sel_file}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file}</a>'
-                            st.markdown(pdf_link, unsafe_allow_html=True)
+                            st.download_button(
+                                label=f"📥 Télécharger {sel_file}",
+                                data=pdf_data,
+                                file_name=sel_file,
+                                mime="application/pdf",
+                                key=f"dl_r1_{sel_a}_{sel_file}"
+                            )
 
             if sel_a:
                 st.divider()
@@ -1531,9 +1525,13 @@ with main_tabs[2]:
                         sel_file_p = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_p, key=f"view_p_{sel_a_p}")
                         if sel_file_p != "-- Choisir un fichier --":
                             pdf_data_p = st.session_state.riders_stockage[sel_a_p][sel_file_p]
-                            b64_pdf_p = base64.b64encode(pdf_data_p).decode('utf-8')
-                            pdf_link_p = f'<a href="data:application/pdf;base64,{b64_pdf_p}" download="{sel_file_p}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_p}</a>'
-                            st.markdown(pdf_link_p, unsafe_allow_html=True)
+                            st.download_button(
+                                label=f"📥 Télécharger {sel_file_p}",
+                                data=pdf_data_p,
+                                file_name=sel_file_p,
+                                mime="application/pdf",
+                                key=f"dl_r2_{sel_a_p}_{sel_file_p}"
+                            )
 
             if sel_a_p:
                 plan_patch = st.session_state.planning[(st.session_state.planning["Jour"].astype(str) == str(sel_j_p)) & (st.session_state.planning["Scène"].astype(str) == str(sel_s_p))]
@@ -1748,9 +1746,13 @@ with main_tabs[2]:
                         sel_file_o = st.selectbox("📂 Voir Rider(s)", ["-- Choisir un fichier --"] + riders_groupe_o, key=f"view_o_{sel_a_o}")
                         if sel_file_o != "-- Choisir un fichier --":
                             pdf_data_o = st.session_state.riders_stockage[sel_a_o][sel_file_o]
-                            b64_pdf_o = base64.b64encode(pdf_data_o).decode('utf-8')
-                            pdf_link_o = f'<a href="data:application/pdf;base64,{b64_pdf_o}" download="{sel_file_o}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:6px 12px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:5px;">👁️ Ouvrir / Télécharger {sel_file_o}</a>'
-                            st.markdown(pdf_link_o, unsafe_allow_html=True)
+                            st.download_button(
+                                label=f"📥 Télécharger {sel_file_o}",
+                                data=pdf_data_o,
+                                file_name=sel_file_o,
+                                mime="application/pdf",
+                                key=f"dl_r3_{sel_a_o}_{sel_file_o}"
+                            )
 
             if sel_a_o:
                 def get_circ(art, key): return int(st.session_state.artist_circuits.get(art, {}).get(key, 0))
