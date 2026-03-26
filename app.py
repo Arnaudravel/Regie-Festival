@@ -98,11 +98,14 @@ if 'custom_catalog' not in st.session_state:
     st.session_state.custom_catalog = {} 
 if 'easyjob_mapping' not in st.session_state:
     st.session_state.easyjob_mapping = {}
+if 'save_path' not in st.session_state:
+    st.session_state.save_path = f"backup_festival.pkl"
 if 'notes_artistes' not in st.session_state:
     st.session_state.notes_artistes = {}
 if 'alim_elec' not in st.session_state:
     st.session_state.alim_elec = pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"])
 
+# NOUVEAUX STATES POUR LES CONTACTS (Convertis automatiquement en DataFrames via fonction dédiée)
 if 'contacts_festival' not in st.session_state:
     st.session_state.contacts_festival = {}
 if 'contacts_scenes' not in st.session_state:
@@ -129,14 +132,6 @@ def get_migrated_contacts(contact_data, default_roles_map):
                     "Canal Talkie": ""
                 })
     return pd.DataFrame(records, columns=["Rôle", "Nom", "Prénom", "Tel", "Mail", "Canal Talkie"])
-
-# --- FONCTION TECHNIQUE POUR OUVRIR LE PDF DANS UN NOUVEL ONGLET ---
-def afficher_preview_pdf(pdf_bytes, filename="document.pdf"):
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    # Ouvre le PDF dans un nouvel onglet permettant d'imprimer ou d'enregistrer où on veut.
-    pdf_link = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" style="text-decoration:none;color:white;background-color:#FF4B4B; padding:10px 20px; border-radius:5px; font-weight:bold; display:inline-block; margin-top:10px; width:100%; text-align:center;">🖨️ Ouvrir le PDF (Nouvel onglet pour Imprimer / Sauvegarder)</a>'
-    st.markdown(pdf_link, unsafe_allow_html=True)
-    st.info("👆 Cliquez sur le bouton rouge. Le PDF s'ouvrira dans une nouvelle page où vous pourrez cliquer sur l'icône 'Imprimer' ou 'Enregistrer'.")
 
 # --- FONCTION TECHNIQUE POUR LE RENDU PDF ---
 class FestivalPDF(FPDF):
@@ -180,6 +175,7 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
         
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
         estimated_height = 8 + (len(df) * 6) + 5
         if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 20):
             self.add_page()
@@ -205,6 +201,7 @@ class FestivalPDF(FPDF):
         col_w = [25, 25, 45, 0]
         headers = ["DÉBUT", "FIN", "PHASE", "ARTISTE"]
         
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
         estimated_height = 8 + (len(df_grid) * 7) + 5
         if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 15):
             self.add_page()
@@ -251,6 +248,7 @@ class FestivalPDF(FPDF):
         cols = list(df.columns)
         col_width = (self.w - 20) / len(cols)
     
+        # Estimation de la hauteur pour éviter de couper le tableau si possible
         estimated_height = 8 + (len(df) * 6) + 5
         if estimated_height < (self.h - 30) and (self.get_y() + estimated_height) > (self.h - 20):
             self.add_page()
@@ -498,7 +496,7 @@ with main_tabs[0]:
                     st.success("Logo chargé !")
                 st.info("Ces informations apparaitront sur tous les exports PDF.")
             
-            st.subheader("💾 Sauvegarde / Chargement Projet (Local)")
+            st.subheader("💾 Sauvegarde Projet")
             with st.container(border=True):
                 data_to_save = {
                     "planning": st.session_state.planning,
@@ -518,77 +516,61 @@ with main_tabs[0]:
                     "contacts_artistes": st.session_state.contacts_artistes
                 }
                 
-                col_s1, col_s2 = st.columns(2)
+                path_input = st.text_input("📍 Chemin / Nom du fichier de sauvegarde (.pkl)", value=st.session_state.save_path)
                 
-                with col_s1:
-                    st.markdown("**1. Sauvegarder**")
-                    if st.button("💾 Save Project As...", use_container_width=True):
+                c_sv1, c_sv2 = st.columns(2)
+                with c_sv1:
+                    if st.button("💾 Save (Écraser)", use_container_width=True):
                         try:
-                            import tkinter as tk
-                            from tkinter import filedialog
-                            
-                            root = tk.Tk()
-                            root.withdraw()
-                            root.wm_attributes('-topmost', 1)
-                            file_path = filedialog.asksaveasfilename(
-                                defaultextension=".pkl", 
-                                filetypes=[("Pickle files", "*.pkl")], 
-                                title="Sauvegarder le projet sous...",
-                                initialfile=f"backup_festival_{datetime.date.today()}.pkl"
-                            )
-                            root.destroy()
-                            
-                            if file_path:
-                                with open(file_path, "wb") as f:
-                                    pickle.dump(data_to_save, f)
-                                st.success(f"✅ Projet sauvegardé dans : {file_path}")
-                            else:
-                                st.warning("Sauvegarde annulée.")
+                            with open(st.session_state.save_path, "wb") as f:
+                                pickle.dump(data_to_save, f)
+                            st.success(f"✅ Sauvegardé avec succès dans : {st.session_state.save_path}")
                         except Exception as e:
-                            st.error(f"Erreur d'écriture ou Tkinter non disponible : {e}")
+                            st.error(f"Erreur d'écriture : {e}")
+                
+                with c_sv2:
+                    if st.button("💾 Save As... (Enregistrer sous)", use_container_width=True):
+                        if path_input:
+                            try:
+                                with open(path_input, "wb") as f:
+                                    pickle.dump(data_to_save, f)
+                                st.session_state.save_path = path_input
+                                st.success(f"✅ Nouveau fichier sauvegardé sous : {path_input}")
+                            except Exception as e:
+                                st.error(f"Erreur d'écriture : {e}")
+                        else:
+                            st.warning("Précisez un nom ou un chemin de fichier.")
 
-                with col_s2:
-                    st.markdown("**2. Charger**")
-                    if st.button("📂 Load Project", use_container_width=True):
+                with st.expander("Alternative Web (Téléchargement classique)"):
+                    pickle_out = pickle.dumps(data_to_save)
+                    st.download_button("📥 Télécharger ma Session (.pkl)", pickle_out, f"backup_festival_{datetime.date.today()}.pkl", use_container_width=True)
+
+                st.divider()
+                uploaded_session = st.file_uploader("📂 Charger une sauvegarde (.pkl)", type=['pkl'])
+                if uploaded_session:
+                    if st.button("Restaurer la sauvegarde"):
                         try:
-                            import tkinter as tk
-                            from tkinter import filedialog
+                            data_loaded = pickle.loads(uploaded_session.read())
+                            st.session_state.planning = data_loaded["planning"]
+                            st.session_state.fiches_tech = data_loaded["fiches_tech"]
+                            st.session_state.riders_stockage = data_loaded["riders_stockage"]
+                            st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
+                            st.session_state.patches_io = data_loaded.get("patches_io", {})
+                            st.session_state.patches_out = data_loaded.get("patches_out", {})
+                            st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
+                            st.session_state.festival_logo = data_loaded.get("festival_logo", None)
+                            st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
+                            st.session_state.easyjob_mapping = data_loaded.get("easyjob_mapping", {})
+                            st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
+                            st.session_state.alim_elec = data_loaded.get("alim_elec", pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"]))
+                            st.session_state.contacts_festival = data_loaded.get("contacts_festival", {})
+                            st.session_state.contacts_scenes = data_loaded.get("contacts_scenes", {})
+                            st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
+                            st.success("Session restaurée avec succès !")
                             
-                            root = tk.Tk()
-                            root.withdraw()
-                            root.wm_attributes('-topmost', 1)
-                            file_path = filedialog.askopenfilename(
-                                filetypes=[("Pickle files", "*.pkl")], 
-                                title="Charger un projet"
-                            )
-                            root.destroy()
-                            
-                            if file_path:
-                                with open(file_path, "rb") as f:
-                                    data_loaded = pickle.load(f)
-                                
-                                st.session_state.planning = data_loaded["planning"]
-                                st.session_state.fiches_tech = data_loaded["fiches_tech"]
-                                st.session_state.riders_stockage = data_loaded["riders_stockage"]
-                                st.session_state.artist_circuits = data_loaded.get("artist_circuits", {})
-                                st.session_state.patches_io = data_loaded.get("patches_io", {})
-                                st.session_state.patches_out = data_loaded.get("patches_out", {})
-                                st.session_state.festival_name = data_loaded.get("festival_name", "Mon Festival")
-                                st.session_state.festival_logo = data_loaded.get("festival_logo", None)
-                                st.session_state.custom_catalog = data_loaded.get("custom_catalog", {})
-                                st.session_state.easyjob_mapping = data_loaded.get("easyjob_mapping", {})
-                                st.session_state.notes_artistes = data_loaded.get("notes_artistes", {})
-                                st.session_state.alim_elec = data_loaded.get("alim_elec", pd.DataFrame(columns=["Scène", "Jour", "Groupe", "Format", "Métier", "Emplacement"]))
-                                st.session_state.contacts_festival = data_loaded.get("contacts_festival", {})
-                                st.session_state.contacts_scenes = data_loaded.get("contacts_scenes", {})
-                                st.session_state.contacts_artistes = data_loaded.get("contacts_artistes", {})
-                                st.success("Session restaurée avec succès !")
-                                st.rerun()
-                            else:
-                                st.warning("Chargement annulé.")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Erreur lors du chargement : {e}")
-
         with col_adm2:
             st.subheader("📚 Catalogue Matériel (Excel)")
             code_secret = st.text_input("🔒 Code Admin", type="password")
@@ -665,7 +647,7 @@ with main_tabs[0]:
                         titre = f"Planning Vertical {s_s_p} - {s_j_p}"
                         pdf_bytes = generer_pdf_planning_visuel(sub_df, titre)
                         if pdf_bytes:
-                            afficher_preview_pdf(pdf_bytes, f"planning_visuel_{s_j_p}.pdf")
+                            st.download_button("📥 Télécharger PDF Planning Visuel (A3)", pdf_bytes, f"planning_visuel_{s_j_p}.pdf", "application/pdf")
                         else:
                             st.warning("Aucune donnée pour générer le graphique.")
                     else:
@@ -684,7 +666,7 @@ with main_tabs[0]:
                         fmt = 'A3' if m_plan == "Global" else 'A4'
                         
                         pdf_bytes = generer_pdf_complet(f"PLANNING {m_plan.upper()}", dico_sections, orientation=orient, format=fmt, is_planning=True)
-                        afficher_preview_pdf(pdf_bytes, "planning.pdf")
+                        st.download_button("📥 Télécharger PDF Planning (Tableau)", pdf_bytes, "planning.pdf", "application/pdf")
 
         with cex2:
             st.subheader("📦 Export Besoins")
@@ -707,6 +689,7 @@ with main_tabs[0]:
                          
                         dico_besoins = {}
                         
+                        # Définition de la portée des artistes pour les circuits et les contacts
                         if m_bes == "Par Jour & Scène": 
                             arts_scope = arts_du_jour if sel_grp_exp == "Tous" else [sel_grp_exp]
                         else:
@@ -723,6 +706,7 @@ with main_tabs[0]:
                             if not df_alim_besoin.empty:
                                 dico_besoins["--- ALIMENTATION ELECTRIQUE ---"] = df_alim_besoin[["Format", "Métier", "Emplacement"]]
 
+                        # NOUVEAU COMPORTEMENT DES CIRCUITS : Affiche pour tous les groupes du scope
                         for a_circ in arts_scope:
                             if a_circ in st.session_state.artist_circuits:
                                 c = st.session_state.artist_circuits[a_circ]
@@ -815,7 +799,7 @@ with main_tabs[0]:
                             dico_besoins["--- REPERTOIRE CONTACTS ARTISTES ---"] = "\n\n".join(contact_texts)
 
                         pdf_bytes_b = generer_pdf_complet(titre_besoin, dico_besoins)
-                        afficher_preview_pdf(pdf_bytes_b, "besoins.pdf")
+                        st.download_button("📥 Télécharger PDF Besoins", pdf_bytes_b, "besoins.pdf", "application/pdf")
 
                 with col_btn_ej:
                     if st.button("Export Easyjob", use_container_width=True):
@@ -899,6 +883,7 @@ with main_tabs[0]:
                     note_patch = st.session_state.notes_artistes.get(s_a_patch, "").strip()
                     if note_patch: dico_patch["--- INFORMATIONS / NOTES ---"] = note_patch
                     
+                    # NOUVEAU COMPORTEMENT : Ajout des circuits dans le patch
                     if s_a_patch in st.session_state.artist_circuits:
                         c_patch = st.session_state.artist_circuits[s_a_patch]
                         q_in, q_ear, q_ms, q_mm = c_patch.get("inputs", 0), c_patch.get("ear_stereo", 0), c_patch.get("mon_stereo", 0), c_patch.get("mon_mono", 0)
@@ -934,10 +919,11 @@ with main_tabs[0]:
                         else:
                             st.warning(f"⚠️ Aucun Patch OUT trouvé pour {s_a_patch}.")
 
+                    # S'il y a au moins les circuits, on autorise l'export
                     if has_data or "--- CONFIGURATION CIRCUITS ---" in dico_patch:
                         titre_patch = f"PATCH - {s_a_patch} ({s_j_patch} | {s_s_patch})"
                         pdf_bytes_p = generer_pdf_patch(titre_patch, dico_patch)
-                        afficher_preview_pdf(pdf_bytes_p, f"patch_{s_a_patch}.pdf")
+                        st.download_button("📥 Télécharger PDF Patch", pdf_bytes_p, f"patch_{s_a_patch}.pdf", "application/pdf", use_container_width=True)
                     else:
                         st.error("Aucune donnée de patch sélectionnée ou disponible à exporter.")
 
@@ -1042,6 +1028,7 @@ with main_tabs[1]:
                     keys_to_delete = [k for k in st.session_state.riders_stockage.keys() if k not in artistes_actifs]
                     for k in keys_to_delete: del st.session_state.riders_stockage[k]
                     
+                    # RERUN FORCE POUR SYNCHRONISER L'UI
                     st.rerun()
 
         # --- BLOC 3 : GESTION PDF ---
@@ -1161,7 +1148,7 @@ with main_tabs[1]:
             )
             if not edited_fest.equals(df_fest_data):
                 st.session_state.contacts_festival = edited_fest
-                st.rerun()
+                st.rerun() # <-- CORRECTION UI
 
         # --- BLOC SCENES ---
         scenes = st.session_state.planning["Scène"].unique() if not st.session_state.planning.empty else []
@@ -1185,7 +1172,7 @@ with main_tabs[1]:
                 )
                 if not edited_scene.equals(df_scene_data):
                     st.session_state.contacts_scenes[s] = edited_scene
-                    st.rerun()
+                    st.rerun() # <-- CORRECTION UI
 
         st.divider()
         st.subheader("Contact Artistes")
@@ -1216,7 +1203,7 @@ with main_tabs[1]:
                     )
                     if not edited_art.equals(df_art_data):
                         st.session_state.contacts_artistes[a] = edited_art
-                        st.rerun()
+                        st.rerun() # <-- CORRECTION UI
         else:
             st.info("Ajoutez des artistes dans le planning pour renseigner leurs contacts.")
 
@@ -1306,7 +1293,7 @@ with main_tabs[2]:
                                 new_alim["Scène"] = sel_s
                                 new_alim["Jour"] = sel_j
                                 st.session_state.alim_elec = pd.concat([st.session_state.alim_elec, new_alim], ignore_index=True)
-                            st.rerun()
+                            st.rerun() # <-- CORRECTION UI
 
                 st.divider()
                 with st.expander(f"📝 Informations complémentaires / Matériel apporté : {sel_a}", expanded=False):
@@ -1397,7 +1384,7 @@ with main_tabs[2]:
                             edited_patch["Groupe"] = sel_a
                             
                         st.session_state.fiches_tech = pd.concat([other_fiches, edited_patch], ignore_index=True)
-                        st.rerun()
+                        st.rerun() # <-- CORRECTION UI
 
                 with col_besoin:
                     st.subheader(f"📊 Besoin {sel_s} - {sel_j}")
@@ -1572,7 +1559,7 @@ with main_tabs[2]:
                             if not edited_master.equals(df_master_in):
                                 tables_src["MASTER"] = edited_master.copy()
                                 tables_out["MASTER"] = edited_master.copy()
-                                st.rerun()
+                                st.rerun() # <-- CORRECTION UI
 
                     for i in range(1, num_tabs + 1):
                         t_name = f"DEPART_{i}"
@@ -1625,7 +1612,7 @@ with main_tabs[2]:
                                         base_input = clean_input(input_val)
                                         tables_out[t_name].at[idx, "Input"] = f"{base_input} {p_val}" if p_val else base_input
                                         
-                                st.rerun()
+                                st.rerun() # <-- CORRECTION UI
                 else: 
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits d'entrées de l'artiste dans 'Saisie du matériel' pour générer le Patch.")
             else: 
@@ -1725,7 +1712,7 @@ with main_tabs[2]:
                         )
                         if not edited_out.equals(df_patch_out_in):
                             st.session_state.patches_out[sel_a_o] = edited_out
-                            st.rerun()
+                            st.rerun() # <-- CORRECTION UI
                 else:
                     st.info("ℹ️ Veuillez renseigner le nombre de circuits de retours (EAR / MON / Sides) dans 'Saisie du matériel' pour générer le Patch OUT.")
             else:
